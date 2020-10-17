@@ -59,16 +59,16 @@ enum class StatusCode : uint32_t
 struct QueueFamilyIndices
 {
     // Graphics queue family.
-    bool     hasGraphicsFamily;
-    uint32_t graphicsFamily;
+    bool     m_HasGraphicsFamily;
+    uint32_t m_GraphicsFamily;
 
     // Compute queue family.
-    bool     hasComputeFamily;
-    uint32_t computeFamily;
+    bool     m_HasComputeFamily;
+    uint32_t m_ComputeFamily;
 
     // Memory transfer queue family.
-    bool     hasMemoryTransferFamily;
-    uint32_t memoryTransferFamily;
+    bool     m_HasMemoryTransferFamily;
+    uint32_t m_MemoryTransferFamily;
 };
 
 ////////////////////////////////////////////////////////////
@@ -521,7 +521,7 @@ private:
     {
         QueueFamilyIndices indices = FindQueueFamilies( physicalDevice );
 
-        return indices.hasGraphicsFamily;
+        return indices.m_HasGraphicsFamily;
     }
 
     ////////////////////////////////////////////////////////////
@@ -538,7 +538,7 @@ private:
         // Populate queue create information.
         VkDeviceQueueCreateInfo queueCreateInfo = {};
         queueCreateInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex        = indices.graphicsFamily;
+        queueCreateInfo.queueFamilyIndex        = indices.m_GraphicsFamily;
         queueCreateInfo.queueCount              = 1;
         queueCreateInfo.pQueuePriorities        = &queuePriority;
 
@@ -561,7 +561,7 @@ private:
             return StatusCode::Fail;
         }
 
-        vkGetDeviceQueue( m_Device, indices.graphicsFamily, 0, &m_GraphicsQueue );
+        vkGetDeviceQueue( m_Device, indices.m_GraphicsFamily, 0, &m_GraphicsQueue );
         if( m_GraphicsQueue == nullptr )
         {
             std::cerr << "Cannot obtain graphics queue!" << std::endl;
@@ -589,20 +589,20 @@ private:
         uint32_t index = 0;
         for( const auto& queueFamily : queueFamilies )
         {
-            if( queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT && !indices.hasGraphicsFamily )
+            if( queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT && !indices.m_HasGraphicsFamily )
             {
-                indices.graphicsFamily    = index;
-                indices.hasGraphicsFamily = true;
+                indices.m_GraphicsFamily    = index;
+                indices.m_HasGraphicsFamily = true;
             }
-            if( queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT && !indices.hasComputeFamily )
+            if( queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT && !indices.m_HasComputeFamily )
             {
-                indices.computeFamily    = index;
-                indices.hasComputeFamily = true;
+                indices.m_ComputeFamily    = index;
+                indices.m_HasComputeFamily = true;
             }
-            if( queueFamily.queueFlags & VK_QUEUE_TRANSFER_BIT && !indices.hasMemoryTransferFamily )
+            if( queueFamily.queueFlags & VK_QUEUE_TRANSFER_BIT && !indices.m_HasMemoryTransferFamily )
             {
-                indices.memoryTransferFamily    = index;
-                indices.hasMemoryTransferFamily = true;
+                indices.m_MemoryTransferFamily    = index;
+                indices.m_HasMemoryTransferFamily = true;
             }
 
             ++index;
