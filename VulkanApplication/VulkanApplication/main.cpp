@@ -217,8 +217,9 @@ private:
         applicationInfo.apiVersion         = VK_API_VERSION_1_0;
 
         // Obtain required extensions.
-        uint32_t     glfwExtensionCount = 0;
-        const char** glfwExtensions     = glfwGetRequiredInstanceExtensions( &glfwExtensionCount );
+        uint32_t                 glfwExtensionCount = 0;
+        const char**             glfwExtensions     = glfwGetRequiredInstanceExtensions( &glfwExtensionCount );
+        std::vector<const char*> extensions( glfwExtensions, glfwExtensions + glfwExtensionCount );
 
         // Enumarate supported extensions.
         uint32_t extensionCount = 0;
@@ -228,23 +229,29 @@ private:
         vkEnumerateInstanceExtensionProperties( nullptr, &extensionCount, availableExtensions.data() );
 
         // Check if required extensions are supported.
-        if( glfwExtensionCount > 0 && glfwExtensions != nullptr )
+        bool foundRequiredExtensions = false;
+
+        for( const auto& requiredExtension : extensions )
         {
-            for( uint32_t i = 0; i < glfwExtensionCount; ++i )
+            auto findRequiredExtension = [&requiredExtension]( const auto& extension ) {
+                return std::string( extension.extensionName ) == requiredExtension;
+            };
+
+            auto iterator = std::find_if( availableExtensions.begin(), availableExtensions.end(), findRequiredExtension );
+
+            if( iterator == availableExtensions.end() )
             {
-                const char* glfwExtension = glfwExtensions[i];
-
-                auto findRequiredExtension = [&glfwExtension]( const auto& extension ) {
-                    return std::string( extension.extensionName ) == glfwExtension;
-                };
-
-                auto iterator = std::find_if( availableExtensions.begin(), availableExtensions.end(), findRequiredExtension );
-
-                if( iterator == availableExtensions.end() )
-                {
-                    return StatusCode::Fail;
-                }
+                return StatusCode::Fail;
             }
+            else
+            {
+                foundRequiredExtensions = true;
+            }
+        }
+
+        if( !foundRequiredExtensions )
+        {
+            return StatusCode::Fail;
         }
 
 #ifdef _DEBUG
@@ -256,6 +263,8 @@ private:
         vkEnumerateInstanceLayerProperties( &layerCount, availableLayers.data() );
 
         // Check if required validation layers are supported.
+        bool foundRequiredValidationLayers = false;
+
         for( const auto& requiredValidationLayer : m_ValidationLayers )
         {
             auto findRequiredValidationLayers = [&requiredValidationLayer]( const auto& validationLayer ) {
@@ -268,6 +277,15 @@ private:
             {
                 return StatusCode::Fail;
             }
+            else
+            {
+                foundRequiredValidationLayers = true;
+            }
+        }
+
+        if( !foundRequiredValidationLayers )
+        {
+            return StatusCode::Fail;
         }
 #endif
 
@@ -275,8 +293,8 @@ private:
         VkInstanceCreateInfo createInfo    = {};
         createInfo.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         createInfo.pApplicationInfo        = &applicationInfo;
-        createInfo.enabledExtensionCount   = glfwExtensionCount;
-        createInfo.ppEnabledExtensionNames = glfwExtensions;
+        createInfo.enabledExtensionCount   = static_cast<uint32_t>( extensions.size() );
+        createInfo.ppEnabledExtensionNames = extensions.data();
 #ifdef _DEBUG
         createInfo.enabledLayerCount   = static_cast<uint32_t>( m_ValidationLayers.size() );
         createInfo.ppEnabledLayerNames = m_ValidationLayers.data();
