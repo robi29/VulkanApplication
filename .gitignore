@@ -4,3 +4,8 @@ VulkanSDK
 VulkanApplication/.vs
 VulkanApplication/VulkanApplication/x64
 VulkanApplication/x64
+GLFW32
+VulkanApplication/Debug
+VulkanApplication/Release
+VulkanApplication/VulkanApplication/Debug
+VulkanApplication/VulkanApplication/Release
