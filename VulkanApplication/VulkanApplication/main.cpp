@@ -3,6 +3,8 @@
 #include <iostream>
 #include <cstdlib>
 
+#include <vector>
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -22,12 +24,17 @@ class Application
 {
 private:
     ////////////////////////////////////////////////////////////
-    /// Private members.
+    /// Private glfw members.
     ////////////////////////////////////////////////////////////
     uint32_t    m_Width;
     uint32_t    m_Height;
     GLFWwindow* m_Window;
     std::string m_WindowName;
+
+    ////////////////////////////////////////////////////////////
+    /// Private Vulkan members.
+    ////////////////////////////////////////////////////////////
+    VkInstance m_Instance;
 
 public:
     ////////////////////////////////////////////////////////////
@@ -38,6 +45,7 @@ public:
         , m_Height( 600 )
         , m_Window( nullptr )
         , m_WindowName( "Vulkan Application" )
+        , m_Instance{}
     {
     }
 
@@ -52,6 +60,7 @@ public:
         , m_Height( height )
         , m_Window( nullptr )
         , m_WindowName( windowName )
+        , m_Instance{}
     {
     }
 
@@ -102,7 +111,13 @@ public:
     {
         StatusCode result = StatusCode::Success;
 
-        result = Cleanup();
+        result = CleanupVulkan();
+        if( result != StatusCode::Success )
+        {
+            return result;
+        }
+
+        result = CleanupWindow();
         if( result != StatusCode::Success )
         {
             return result;
@@ -144,7 +159,11 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode InitializeVulkan()
     {
-        return StatusCode::Success;
+        StatusCode result = StatusCode::Success;
+
+        result = CreateInstance();
+
+        return result;
     }
 
     ////////////////////////////////////////////////////////////
@@ -162,15 +181,87 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
-    /// Cleanups the application.
+    /// Cleanups the window.
     ////////////////////////////////////////////////////////////
-    StatusCode Cleanup()
+    StatusCode CleanupWindow()
     {
         // Destroy the windows.
         glfwDestroyWindow( m_Window );
 
         // Destroy glfw library.
         glfwTerminate();
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Creates Vulkan instance.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateInstance()
+    {
+        // Information about the application.
+        VkApplicationInfo applicationInfo  = {};
+        applicationInfo.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+        applicationInfo.pApplicationName   = m_WindowName.c_str();
+        applicationInfo.applicationVersion = VK_MAKE_VERSION( 1, 0, 0 );
+        applicationInfo.pEngineName        = "No Engine";
+        applicationInfo.engineVersion      = VK_MAKE_VERSION( 1, 0, 0 );
+        applicationInfo.apiVersion         = VK_API_VERSION_1_0;
+
+        // Obtain required extensions.
+        uint32_t     glfwExtensionCount = 0;
+        const char** glfwExtensions     = glfwGetRequiredInstanceExtensions( &glfwExtensionCount );
+
+        // Enumarate supported extensions.
+        uint32_t extensionCount = 0;
+        vkEnumerateInstanceExtensionProperties( nullptr, &extensionCount, nullptr );
+
+        std::vector<VkExtensionProperties> extensions( extensionCount );
+        vkEnumerateInstanceExtensionProperties( nullptr, &extensionCount, extensions.data() );
+
+        // Check if required extensions are supported.
+        if( glfwExtensionCount > 0 && glfwExtensions != nullptr )
+        {
+            for( uint32_t i = 0; i < glfwExtensionCount; ++i )
+            {
+                const char* glfwExtension = glfwExtensions[i];
+
+                auto findRequiredExtension = [&glfwExtension]( const auto& extension )
+                {
+                    return std::string( extension.extensionName ) == glfwExtension;
+                };
+
+                auto iterator = std::find_if( extensions.begin(), extensions.end(), findRequiredExtension );
+
+                if( iterator == extensions.end() )
+                {
+                    return StatusCode::Fail;
+                }
+            }
+        }
+
+        // Sufficient information for creating an instance.
+        VkInstanceCreateInfo createInfo    = {};
+        createInfo.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        createInfo.pApplicationInfo        = &applicationInfo;
+        createInfo.enabledExtensionCount   = glfwExtensionCount;
+        createInfo.ppEnabledExtensionNames = glfwExtensions;
+        createInfo.enabledLayerCount       = 0;
+
+        if( vkCreateInstance( &createInfo, nullptr, &m_Instance ) != VK_SUCCESS )
+        {
+            return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Cleanups Vulkan api.
+    ////////////////////////////////////////////////////////////
+    StatusCode CleanupVulkan()
+    {
+        vkDestroyInstance( m_Instance, nullptr );
 
         return StatusCode::Success;
     }
