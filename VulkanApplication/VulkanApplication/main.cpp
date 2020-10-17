@@ -92,6 +92,7 @@ private:
     VkPhysicalDevice         m_PhysicalDevice;
     VkPhysicalDeviceFeatures m_PhysicalDeviceFeatures;
     VkDevice                 m_Device;
+    VkQueue                  m_GraphicsQueue;
 
     ////////////////////////////////////////////////////////////
     /// Private debugging and validation layer members.
@@ -125,6 +126,7 @@ public:
         , m_PhysicalDevice( VK_NULL_HANDLE )
         , m_PhysicalDeviceFeatures{}
         , m_Device( VK_NULL_HANDLE )
+        , m_GraphicsQueue( VK_NULL_HANDLE )
     {
 #ifdef _DEBUG
         m_ValidationLayers.emplace_back( "VK_LAYER_KHRONOS_validation" );
@@ -556,6 +558,13 @@ private:
         if( vkCreateDevice( m_PhysicalDevice, &deviceCreateInfo, nullptr, &m_Device ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create a logical device!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        vkGetDeviceQueue( m_Device, indices.graphicsFamily, 0, &m_GraphicsQueue );
+        if( m_GraphicsQueue == nullptr )
+        {
+            std::cerr << "Cannot obtain graphics queue!" << std::endl;
             return StatusCode::Fail;
         }
 
