@@ -114,6 +114,7 @@ private:
     std::vector<VkImage>     m_SwapChainImages;
     VkFormat                 m_SwapChainImageFormat;
     VkExtent2D               m_SwapChainExtent;
+    std::vector<VkImageView> m_SwapChainImageViews;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -157,8 +158,9 @@ public:
         , m_PresentQueue( VK_NULL_HANDLE )
         , m_SwapChain( VK_NULL_HANDLE )
         , m_SwapChainImages{}
-        , m_SwapChainImageFormat{}
+        , m_SwapChainImageFormat( VK_FORMAT_UNDEFINED )
         , m_SwapChainExtent{}
+        , m_SwapChainImageViews{}
         , m_PhysicalDeviceExtensions{}
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
@@ -310,6 +312,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Swap chain creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateImageViews();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Image views creation failed!" << std::endl;
             return result;
         }
 
@@ -885,6 +894,44 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates image views.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateImageViews()
+    {
+        // Match swap chain image views to swap chain images.
+        m_SwapChainImageViews.resize( m_SwapChainImages.size() );
+
+        for( size_t i = 0; i < m_SwapChainImages.size(); ++i )
+        {
+            VkImageViewCreateInfo createInfo = {};
+            createInfo.sType                 = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            createInfo.image                 = m_SwapChainImages[i];
+            createInfo.viewType              = VK_IMAGE_VIEW_TYPE_2D;
+            createInfo.format                = m_SwapChainImageFormat;
+            createInfo.components.r          = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.components.g          = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.components.b          = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.components.a          = VK_COMPONENT_SWIZZLE_IDENTITY;
+
+            // For stereographics 3d applications a swap chain with multiple layers is required and
+            // with multiple image views as well.
+            createInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            createInfo.subresourceRange.baseMipLevel   = 0;
+            createInfo.subresourceRange.levelCount     = 1;
+            createInfo.subresourceRange.baseArrayLayer = 0;
+            createInfo.subresourceRange.layerCount     = 1;
+
+            if( vkCreateImageView( m_Device, &createInfo, nullptr, &m_SwapChainImageViews[i] ) != VK_SUCCESS )
+            {
+                std::cerr << "Cannot create swap chain image view!" << std::endl;
+                return StatusCode::Fail;
+            }
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Populates debug messenger create information.
     ////////////////////////////////////////////////////////////
     void PopulateDebugMessengerCreateInfo( VkDebugUtilsMessengerCreateInfoEXT& createInfo )
@@ -923,6 +970,11 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CleanupVulkan()
     {
+        for( auto imageView : m_SwapChainImageViews )
+        {
+            vkDestroyImageView( m_Device, imageView, nullptr );
+        }
+
         vkDestroySwapchainKHR( m_Device, m_SwapChain, nullptr );
 
         vkDestroyDevice( m_Device, nullptr );
