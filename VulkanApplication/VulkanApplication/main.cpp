@@ -178,18 +178,32 @@ private:
 
 int32_t main()
 {
+    StatusCode result = StatusCode::Success;
+
     // Construct an application object with parameters.
     Application application( 800, 600, "Vulkan Application" );
 
     // Initialize the application.
-    application.Initialize();
+    result = application.Initialize();
+    if( result != StatusCode::Success )
+    {
+        return static_cast<int32_t>( result );
+    }
 
     // Run the application in a loop.
-    application.Run();
+    result = application.Run();
+    if( result != StatusCode::Success )
+    {
+        return static_cast<int32_t>( result );
+    }
 
     // Destroy the application.
-    application.Destroy();
+    result = application.Destroy();
+    if( result != StatusCode::Success )
+    {
+        return static_cast<int32_t>( result );
+    }
 
     // Return success.
-    return static_cast<int32_t>( StatusCode::Success );
+    return static_cast<int32_t>( result );
 }
