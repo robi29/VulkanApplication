@@ -69,7 +69,8 @@ private:
     ////////////////////////////////////////////////////////////
     /// Private Vulkan members.
     ////////////////////////////////////////////////////////////
-    VkInstance m_Instance;
+    VkInstance       m_Instance;
+    VkPhysicalDevice m_PhysicalDevice;
 
     ////////////////////////////////////////////////////////////
     /// Private debugging and validation layer members.
@@ -99,7 +100,8 @@ public:
         , m_Height( height )
         , m_Window( nullptr )
         , m_WindowName( windowName )
-        , m_Instance{}
+        , m_Instance( VK_NULL_HANDLE )
+        , m_PhysicalDevice( VK_NULL_HANDLE )
     {
 #ifdef _DEBUG
         m_ValidationLayers.emplace_back( "VK_LAYER_KHRONOS_validation" );
@@ -218,6 +220,12 @@ private:
             return result;
         }
 #endif
+
+        result = PickPhysicalDevice();
+        if( result != StatusCode::Success )
+        {
+            return result;
+        }
 
         return result;
     }
@@ -366,6 +374,96 @@ private:
         }
 
         return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Picks a suitable graphics card.
+    ////////////////////////////////////////////////////////////
+    StatusCode PickPhysicalDevice()
+    {
+        // Enumerate for available graphics cards.
+        uint32_t physicalDeviceCount = 0;
+        vkEnumeratePhysicalDevices( m_Instance, &physicalDeviceCount, nullptr );
+
+        if( physicalDeviceCount == 0 )
+        {
+            StatusCode::Fail;
+        }
+
+        std::vector<VkPhysicalDevice> physicalDevices( physicalDeviceCount );
+        vkEnumeratePhysicalDevices( m_Instance, &physicalDeviceCount, physicalDevices.data() );
+
+        // Choose a suitibale graphics card.
+        uint32_t bestScore = 0;
+
+        for( const auto& physicalDevice : physicalDevices )
+        {
+            uint32_t currentScore = RatePhysicalDeviceSuitability( physicalDevice );
+            if( currentScore > bestScore )
+            {
+                m_PhysicalDevice = physicalDevice;
+                bestScore        = currentScore;
+            }
+        }
+
+        if( m_PhysicalDevice == VK_NULL_HANDLE )
+        {
+            StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Rates graphics card suitability.
+    ////////////////////////////////////////////////////////////
+    uint32_t RatePhysicalDeviceSuitability( VkPhysicalDevice physicalDevice )
+    {
+        // Get the physical device properties.
+        VkPhysicalDeviceProperties physicalDeviceProperties;
+        vkGetPhysicalDeviceProperties( physicalDevice, &physicalDeviceProperties );
+
+        // Get the physical device features.
+        VkPhysicalDeviceFeatures physicalDeviceFeatures;
+        vkGetPhysicalDeviceFeatures( physicalDevice, &physicalDeviceFeatures );
+
+        // Do not choose a physical device without tessellation shader support.
+        if( !physicalDeviceFeatures.tessellationShader )
+        {
+            return 0;
+        }
+
+        uint32_t score = 0;
+
+        switch( physicalDeviceProperties.deviceType )
+        {
+            case VK_PHYSICAL_DEVICE_TYPE_OTHER:
+                score += 2;
+                break;
+
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+                score += 100;
+                break;
+
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+                score += 1000;
+                break;
+
+            case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+                score += 10;
+                break;
+
+            case VK_PHYSICAL_DEVICE_TYPE_CPU:
+                score += 5;
+                break;
+
+            default:
+                score += 1;
+        }
+
+        score += physicalDeviceProperties.limits.maxImageDimension2D;
+
+        return score;
     }
 
     ////////////////////////////////////////////////////////////
