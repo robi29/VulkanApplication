@@ -24,6 +24,7 @@ VkResult vkCreateDebugUtilsMessengerEXT(
     }
     else
     {
+        std::cerr << "Cannot find vkCreateDebugUtilsMessengerEXT extensions!" << std::endl;
         return VK_ERROR_EXTENSION_NOT_PRESENT;
     }
 }
@@ -203,6 +204,7 @@ private:
         // Initialize glfw library.
         if( glfwInit() != GLFW_TRUE )
         {
+            std::cerr << "Cannot initialize glfw library!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -216,6 +218,7 @@ private:
         m_Window = glfwCreateWindow( m_Width, m_Height, m_WindowName.c_str(), nullptr, nullptr );
         if( m_Window == nullptr )
         {
+            std::cerr << "Cannot create window!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -232,6 +235,7 @@ private:
         result = CreateInstance();
         if( result != StatusCode::Success )
         {
+            std::cerr << "Vulkan instance creation failed!" << std::endl;
             return result;
         }
 
@@ -239,6 +243,7 @@ private:
         result = SetupDebugMessenger();
         if( result != StatusCode::Success )
         {
+            std::cerr << "Setup debug messenger failed!" << std::endl;
             return result;
         }
 #endif
@@ -246,12 +251,14 @@ private:
         result = PickPhysicalDevice();
         if( result != StatusCode::Success )
         {
+            std::cerr << "Physical device picking failed!" << std::endl;
             return result;
         }
 
         result = CreateLogicalDevice();
         if( result != StatusCode::Success )
         {
+            std::cerr << "Logical device creation failed!" << std::endl;
             return result;
         }
 
@@ -330,6 +337,7 @@ private:
 
             if( iterator == availableExtensions.end() )
             {
+                std::cerr << "Cannot find extension: " << iterator->extensionName << std::endl;
                 return StatusCode::Fail;
             }
             else
@@ -340,6 +348,7 @@ private:
 
         if( !foundRequiredExtensions )
         {
+            std::cerr << "Cannot find required extensions!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -364,6 +373,7 @@ private:
 
             if( iterator == availableLayers.end() )
             {
+                std::cerr << "Cannot find validation layer: " << iterator->layerName << std::endl;
                 return StatusCode::Fail;
             }
             else
@@ -374,6 +384,7 @@ private:
 
         if( !foundRequiredValidationLayers )
         {
+            std::cerr << "Cannot find required validation layers!" << std::endl;
             return StatusCode::Fail;
         }
 #endif
@@ -393,11 +404,12 @@ private:
 
         createInfo.pNext = &debugCreateInfo;
 #else
-        createInfo.enabledLayerCount = 0;
+        createInfo.enabledLayerCount       = 0;
 #endif
 
         if( vkCreateInstance( &createInfo, nullptr, &m_Instance ) != VK_SUCCESS )
         {
+            std::cerr << "Cannot create Vulkan instance!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -415,6 +427,7 @@ private:
 
         if( physicalDeviceCount == 0 )
         {
+            std::cerr << "Cannot find a physical device!" << std::endl;
             StatusCode::Fail;
         }
 
@@ -439,6 +452,7 @@ private:
 
         if( m_PhysicalDevice == VK_NULL_HANDLE )
         {
+            std::cerr << "Cannot find a suitable physical device!" << std::endl;
             StatusCode::Fail;
         }
 
@@ -541,6 +555,7 @@ private:
 
         if( vkCreateDevice( m_PhysicalDevice, &deviceCreateInfo, nullptr, &m_Device ) != VK_SUCCESS )
         {
+            std::cerr << "Cannot create a logical device!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -613,6 +628,7 @@ private:
 
         if( vkCreateDebugUtilsMessengerEXT( m_Instance, &createInfo, nullptr, &m_DebugMessenger ) != VK_SUCCESS )
         {
+            std::cerr << "Cannot create debug utils messenger!" << std::endl;
             return StatusCode::Fail;
         }
 #endif
@@ -667,6 +683,8 @@ int32_t main()
     result = application.Initialize();
     if( result != StatusCode::Success )
     {
+        std::cerr << "Initialization failed!" << std::endl;
+        application.Destroy();
         return static_cast<int32_t>( result );
     }
 
@@ -674,6 +692,8 @@ int32_t main()
     result = application.Run();
     if( result != StatusCode::Success )
     {
+        std::cerr << "Run failed!" << std::endl;
+        application.Destroy();
         return static_cast<int32_t>( result );
     }
 
@@ -681,6 +701,7 @@ int32_t main()
     result = application.Destroy();
     if( result != StatusCode::Success )
     {
+        std::cerr << "Destroy failed!" << std::endl;
         return static_cast<int32_t>( result );
     }
 
