@@ -87,8 +87,10 @@ private:
     ////////////////////////////////////////////////////////////
     /// Private Vulkan members.
     ////////////////////////////////////////////////////////////
-    VkInstance       m_Instance;
-    VkPhysicalDevice m_PhysicalDevice;
+    VkInstance               m_Instance;
+    VkPhysicalDevice         m_PhysicalDevice;
+    VkPhysicalDeviceFeatures m_PhysicalDeviceFeatures;
+    VkDevice                 m_Device;
 
     ////////////////////////////////////////////////////////////
     /// Private debugging and validation layer members.
@@ -120,6 +122,8 @@ public:
         , m_WindowName( windowName )
         , m_Instance( VK_NULL_HANDLE )
         , m_PhysicalDevice( VK_NULL_HANDLE )
+        , m_PhysicalDeviceFeatures{}
+        , m_Device( VK_NULL_HANDLE )
     {
 #ifdef _DEBUG
         m_ValidationLayers.emplace_back( "VK_LAYER_KHRONOS_validation" );
@@ -240,6 +244,12 @@ private:
 #endif
 
         result = PickPhysicalDevice();
+        if( result != StatusCode::Success )
+        {
+            return result;
+        }
+
+        result = CreateLogicalDevice();
         if( result != StatusCode::Success )
         {
             return result;
@@ -447,11 +457,10 @@ private:
         vkGetPhysicalDeviceProperties( physicalDevice, &physicalDeviceProperties );
 
         // Get the physical device features.
-        VkPhysicalDeviceFeatures physicalDeviceFeatures;
-        vkGetPhysicalDeviceFeatures( physicalDevice, &physicalDeviceFeatures );
+        vkGetPhysicalDeviceFeatures( physicalDevice, &m_PhysicalDeviceFeatures );
 
         // Do not choose a physical device without tessellation shader support.
-        if( !physicalDeviceFeatures.tessellationShader )
+        if( !m_PhysicalDeviceFeatures.tessellationShader )
         {
             return 0;
         }
@@ -497,6 +506,45 @@ private:
         QueueFamilyIndices indices = FindQueueFamilies( physicalDevice );
 
         return indices.hasGraphicsFamily;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Creates a logical device.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateLogicalDevice()
+    {
+        // Get graphics queue family index.
+        QueueFamilyIndices indices = FindQueueFamilies( m_PhysicalDevice );
+
+        // Set the queue priority.
+        const float queuePriority = 1.0f;
+
+        // Populate queue create information.
+        VkDeviceQueueCreateInfo queueCreateInfo = {};
+        queueCreateInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex        = indices.graphicsFamily;
+        queueCreateInfo.queueCount              = 1;
+        queueCreateInfo.pQueuePriorities        = &queuePriority;
+
+        // Populate logical device create information.
+        VkDeviceCreateInfo deviceCreateInfo   = {};
+        deviceCreateInfo.sType                = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        deviceCreateInfo.pQueueCreateInfos    = &queueCreateInfo;
+        deviceCreateInfo.queueCreateInfoCount = 1;
+        deviceCreateInfo.pEnabledFeatures     = &m_PhysicalDeviceFeatures;
+#ifdef _DEBUG
+        deviceCreateInfo.enabledLayerCount   = static_cast<uint32_t>( m_ValidationLayers.size() );
+        deviceCreateInfo.ppEnabledLayerNames = m_ValidationLayers.data();
+#else
+        deviceCreateInfo.enabledLayerCount = 0;
+#endif
+
+        if( vkCreateDevice( m_PhysicalDevice, &deviceCreateInfo, nullptr, &m_Device ) != VK_SUCCESS )
+        {
+            return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
     }
 
     ////////////////////////////////////////////////////////////
@@ -577,6 +625,8 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CleanupVulkan()
     {
+        vkDestroyDevice( m_Device, nullptr );
+
 #ifdef _DEBUG
         vkDestroyDebugUtilsMessengerEXT( m_Instance, m_DebugMessenger, nullptr );
 #endif
