@@ -93,6 +93,7 @@ private:
     VkPhysicalDeviceFeatures m_PhysicalDeviceFeatures;
     VkDevice                 m_Device;
     VkQueue                  m_GraphicsQueue;
+    VkSurfaceKHR             m_Surface;
 
     ////////////////////////////////////////////////////////////
     /// Private debugging and validation layer members.
@@ -127,9 +128,11 @@ public:
         , m_PhysicalDeviceFeatures{}
         , m_Device( VK_NULL_HANDLE )
         , m_GraphicsQueue( VK_NULL_HANDLE )
+        , m_Surface( VK_NULL_HANDLE )
     {
 #ifdef _DEBUG
         m_ValidationLayers.emplace_back( "VK_LAYER_KHRONOS_validation" );
+        m_DebugMessenger = VK_NULL_HANDLE;
 #endif
     }
 
@@ -249,6 +252,12 @@ private:
             return result;
         }
 #endif
+        result = CreateSurface();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Surface creation failed!" << std::endl;
+            return result;
+        }
 
         result = PickPhysicalDevice();
         if( result != StatusCode::Success )
@@ -412,6 +421,20 @@ private:
         if( vkCreateInstance( &createInfo, nullptr, &m_Instance ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create Vulkan instance!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Creates Vulkan surface.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateSurface()
+    {
+        if( glfwCreateWindowSurface( m_Instance, m_Window, nullptr, &m_Surface ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create Vulkan surface using glfw library!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -651,6 +674,8 @@ private:
     StatusCode CleanupVulkan()
     {
         vkDestroyDevice( m_Device, nullptr );
+
+        vkDestroySurfaceKHR( m_Instance, m_Surface, nullptr );
 
 #ifdef _DEBUG
         vkDestroyDebugUtilsMessengerExtension( m_Instance, m_DebugMessenger, nullptr );
