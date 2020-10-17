@@ -111,6 +111,9 @@ private:
     VkQueue                  m_GraphicsQueue;
     VkQueue                  m_PresentQueue;
     VkSwapchainKHR           m_SwapChain;
+    std::vector<VkImage>     m_SwapChainImages;
+    VkFormat                 m_SwapChainImageFormat;
+    VkExtent2D               m_SwapChainExtent;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -153,6 +156,9 @@ public:
         , m_GraphicsQueue( VK_NULL_HANDLE )
         , m_PresentQueue( VK_NULL_HANDLE )
         , m_SwapChain( VK_NULL_HANDLE )
+        , m_SwapChainImages{}
+        , m_SwapChainImageFormat{}
+        , m_SwapChainExtent{}
         , m_PhysicalDeviceExtensions{}
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
@@ -769,11 +775,21 @@ private:
         createInfo.clipped        = VK_TRUE;
         createInfo.oldSwapchain   = VK_NULL_HANDLE;
 
+        // Create swap chain.
         if( vkCreateSwapchainKHR( m_Device, &createInfo, nullptr, &m_SwapChain ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create swap chain!" << std::endl;
             return StatusCode::Fail;
         }
+
+        // Get swap chain images.
+        vkGetSwapchainImagesKHR( m_Device, m_SwapChain, &imageCount, nullptr );
+        m_SwapChainImages.resize( imageCount );
+        vkGetSwapchainImagesKHR( m_Device, m_SwapChain, &imageCount, m_SwapChainImages.data() );
+
+        // Store swap chain format and extent.
+        m_SwapChainImageFormat = surfaceFormat.format;
+        m_SwapChainExtent      = extent;
 
         return StatusCode::Success;
     }
