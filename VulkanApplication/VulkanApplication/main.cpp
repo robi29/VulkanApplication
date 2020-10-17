@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cstdlib>
 
+#include <set>
 #include <vector>
 
 #define GLFW_INCLUDE_VULKAN
@@ -69,6 +70,10 @@ struct QueueFamilyIndices
     // Memory transfer queue family.
     bool     m_HasMemoryTransferFamily;
     uint32_t m_MemoryTransferFamily;
+
+    // Present queue family.
+    bool     m_HasPresentFamily;
+    uint32_t m_PresentFamily;
 };
 
 ////////////////////////////////////////////////////////////
@@ -89,11 +94,12 @@ private:
     /// Private Vulkan members.
     ////////////////////////////////////////////////////////////
     VkInstance               m_Instance;
+    VkSurfaceKHR             m_Surface;
     VkPhysicalDevice         m_PhysicalDevice;
     VkPhysicalDeviceFeatures m_PhysicalDeviceFeatures;
     VkDevice                 m_Device;
     VkQueue                  m_GraphicsQueue;
-    VkSurfaceKHR             m_Surface;
+    VkQueue                  m_PresentQueue;
 
     ////////////////////////////////////////////////////////////
     /// Private debugging and validation layer members.
@@ -124,11 +130,12 @@ public:
         , m_Window( nullptr )
         , m_WindowName( windowName )
         , m_Instance( VK_NULL_HANDLE )
+        , m_Surface( VK_NULL_HANDLE )
         , m_PhysicalDevice( VK_NULL_HANDLE )
         , m_PhysicalDeviceFeatures{}
         , m_Device( VK_NULL_HANDLE )
         , m_GraphicsQueue( VK_NULL_HANDLE )
-        , m_Surface( VK_NULL_HANDLE )
+        , m_PresentQueue( VK_NULL_HANDLE )
     {
 #ifdef _DEBUG
         m_ValidationLayers.emplace_back( "VK_LAYER_KHRONOS_validation" );
@@ -481,8 +488,6 @@ private:
             StatusCode::Fail;
         }
 
-        FindQueueFamilies( m_PhysicalDevice );
-
         return StatusCode::Success;
     }
 
@@ -544,7 +549,7 @@ private:
     {
         QueueFamilyIndices indices = FindQueueFamilies( physicalDevice );
 
-        return indices.m_HasGraphicsFamily;
+        return indices.m_HasGraphicsFamily && indices.m_HasPresentFamily;
     }
 
     ////////////////////////////////////////////////////////////
@@ -558,18 +563,27 @@ private:
         // Set the queue priority.
         const float queuePriority = 1.0f;
 
+        // Graphics and present queue create information.
+        std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+        std::set<uint32_t>                   uniqueQueueFamilies = { indices.m_GraphicsFamily, indices.m_PresentFamily };
+
         // Populate queue create information.
-        VkDeviceQueueCreateInfo queueCreateInfo = {};
-        queueCreateInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex        = indices.m_GraphicsFamily;
-        queueCreateInfo.queueCount              = 1;
-        queueCreateInfo.pQueuePriorities        = &queuePriority;
+        for( const uint32_t queueFamily : uniqueQueueFamilies )
+        {
+            VkDeviceQueueCreateInfo queueCreateInfo = {};
+            queueCreateInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queueCreateInfo.queueFamilyIndex        = queueFamily;
+            queueCreateInfo.queueCount              = 1;
+            queueCreateInfo.pQueuePriorities        = &queuePriority;
+
+            queueCreateInfos.emplace_back( queueCreateInfo );
+        }
 
         // Populate logical device create information.
         VkDeviceCreateInfo deviceCreateInfo   = {};
         deviceCreateInfo.sType                = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        deviceCreateInfo.pQueueCreateInfos    = &queueCreateInfo;
-        deviceCreateInfo.queueCreateInfoCount = 1;
+        deviceCreateInfo.queueCreateInfoCount = static_cast<uint32_t>( queueCreateInfos.size() );
+        deviceCreateInfo.pQueueCreateInfos    = queueCreateInfos.data();
         deviceCreateInfo.pEnabledFeatures     = &m_PhysicalDeviceFeatures;
 #ifdef _DEBUG
         deviceCreateInfo.enabledLayerCount   = static_cast<uint32_t>( m_ValidationLayers.size() );
@@ -578,16 +592,26 @@ private:
         deviceCreateInfo.enabledLayerCount = 0;
 #endif
 
+        // Create a logical device.
         if( vkCreateDevice( m_PhysicalDevice, &deviceCreateInfo, nullptr, &m_Device ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create a logical device!" << std::endl;
             return StatusCode::Fail;
         }
 
+        // Get graphics queue.
         vkGetDeviceQueue( m_Device, indices.m_GraphicsFamily, 0, &m_GraphicsQueue );
         if( m_GraphicsQueue == nullptr )
         {
             std::cerr << "Cannot obtain graphics queue!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Get present family.
+        vkGetDeviceQueue( m_Device, indices.m_PresentFamily, 0, &m_PresentQueue );
+        if( m_PresentQueue == nullptr )
+        {
+            std::cerr << "Cannot obtain present queue!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -612,20 +636,37 @@ private:
         uint32_t index = 0;
         for( const auto& queueFamily : queueFamilies )
         {
+            // Graphics queue family.
             if( queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT && !indices.m_HasGraphicsFamily )
             {
                 indices.m_GraphicsFamily    = index;
                 indices.m_HasGraphicsFamily = true;
             }
+
+            // Compute queue family.
             if( queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT && !indices.m_HasComputeFamily )
             {
                 indices.m_ComputeFamily    = index;
                 indices.m_HasComputeFamily = true;
             }
+
+            // Memory transfer queue family.
             if( queueFamily.queueFlags & VK_QUEUE_TRANSFER_BIT && !indices.m_HasMemoryTransferFamily )
             {
                 indices.m_MemoryTransferFamily    = index;
                 indices.m_HasMemoryTransferFamily = true;
+            }
+
+            // Present queue family.
+            if( !indices.m_HasPresentFamily )
+            {
+                VkBool32 presentSupported = false;
+                vkGetPhysicalDeviceSurfaceSupportKHR( physicalDevice, index, m_Surface, &presentSupported );
+                if( presentSupported )
+                {
+                    indices.m_PresentFamily    = index;
+                    indices.m_HasPresentFamily = true;
+                }
             }
 
             ++index;
