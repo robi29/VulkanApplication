@@ -53,6 +53,24 @@ enum class StatusCode : uint32_t
 };
 
 ////////////////////////////////////////////////////////////
+/// Queue family indices.
+////////////////////////////////////////////////////////////
+struct QueueFamilyIndices
+{
+    // Graphics queue family.
+    bool     hasGraphicsFamily;
+    uint32_t graphicsFamily;
+
+    // Compute queue family.
+    bool     hasComputeFamily;
+    uint32_t computeFamily;
+
+    // Memory transfer queue family.
+    bool     hasMemoryTransferFamily;
+    uint32_t memoryTransferFamily;
+};
+
+////////////////////////////////////////////////////////////
 /// Application object.
 ////////////////////////////////////////////////////////////
 class Application
@@ -398,11 +416,14 @@ private:
 
         for( const auto& physicalDevice : physicalDevices )
         {
-            uint32_t currentScore = RatePhysicalDeviceSuitability( physicalDevice );
-            if( currentScore > bestScore )
+            if( IsPhysicalDeviceSuitable( physicalDevice ) )
             {
-                m_PhysicalDevice = physicalDevice;
-                bestScore        = currentScore;
+                uint32_t currentScore = RatePhysicalDeviceSuitability( physicalDevice );
+                if( currentScore > bestScore )
+                {
+                    m_PhysicalDevice = physicalDevice;
+                    bestScore        = currentScore;
+                }
             }
         }
 
@@ -410,6 +431,8 @@ private:
         {
             StatusCode::Fail;
         }
+
+        FindQueueFamilies( m_PhysicalDevice );
 
         return StatusCode::Success;
     }
@@ -464,6 +487,56 @@ private:
         score += physicalDeviceProperties.limits.maxImageDimension2D;
 
         return score;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Checks if physical device is suitable.
+    ////////////////////////////////////////////////////////////
+    bool IsPhysicalDeviceSuitable( VkPhysicalDevice physicalDevice )
+    {
+        QueueFamilyIndices indices = FindQueueFamilies( physicalDevice );
+
+        return indices.hasGraphicsFamily;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Find different queue families.
+    ////////////////////////////////////////////////////////////
+    QueueFamilyIndices FindQueueFamilies( VkPhysicalDevice physicalDevice )
+    {
+        QueueFamilyIndices indices = {};
+
+        // Get physical device queue family properties.
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties( physicalDevice, &queueFamilyCount, nullptr );
+
+        std::vector<VkQueueFamilyProperties> queueFamilies( queueFamilyCount );
+        vkGetPhysicalDeviceQueueFamilyProperties( physicalDevice, &queueFamilyCount, queueFamilies.data() );
+
+        // Find all needed queue families.
+        uint32_t index = 0;
+        for( const auto& queueFamily : queueFamilies )
+        {
+            if( queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT && !indices.hasGraphicsFamily )
+            {
+                indices.graphicsFamily    = index;
+                indices.hasGraphicsFamily = true;
+            }
+            if( queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT && !indices.hasComputeFamily )
+            {
+                indices.computeFamily    = index;
+                indices.hasComputeFamily = true;
+            }
+            if( queueFamily.queueFlags & VK_QUEUE_TRANSFER_BIT && !indices.hasMemoryTransferFamily )
+            {
+                indices.memoryTransferFamily    = index;
+                indices.hasMemoryTransferFamily = true;
+            }
+
+            ++index;
+        }
+
+        return indices;
     }
 
     ////////////////////////////////////////////////////////////
