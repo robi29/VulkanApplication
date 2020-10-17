@@ -36,16 +36,19 @@ private:
     ////////////////////////////////////////////////////////////
     VkInstance m_Instance;
 
+    ////////////////////////////////////////////////////////////
+    /// Private validation layer members.
+    ////////////////////////////////////////////////////////////
+#ifdef _DEBUG
+    std::vector<const char*> m_ValidationLayers;
+#endif
+
 public:
     ////////////////////////////////////////////////////////////
     /// Default constructor of the object.
     ////////////////////////////////////////////////////////////
     Application()
-        : m_Width( 800 )
-        , m_Height( 600 )
-        , m_Window( nullptr )
-        , m_WindowName( "Vulkan Application" )
-        , m_Instance{}
+        : Application( 800, 600, "Vulkan Application" )
     {
     }
 
@@ -62,6 +65,9 @@ public:
         , m_WindowName( windowName )
         , m_Instance{}
     {
+#ifdef _DEBUG
+        m_ValidationLayers.emplace_back( "VK_LAYER_KHRONOS_validation" );
+#endif
     }
 
     ////////////////////////////////////////////////////////////
@@ -111,12 +117,14 @@ public:
     {
         StatusCode result = StatusCode::Success;
 
+        // Cleanups Vulkan api.
         result = CleanupVulkan();
         if( result != StatusCode::Success )
         {
             return result;
         }
 
+        // Cleanups the window and glfw library.
         result = CleanupWindow();
         if( result != StatusCode::Success )
         {
@@ -216,8 +224,8 @@ private:
         uint32_t extensionCount = 0;
         vkEnumerateInstanceExtensionProperties( nullptr, &extensionCount, nullptr );
 
-        std::vector<VkExtensionProperties> extensions( extensionCount );
-        vkEnumerateInstanceExtensionProperties( nullptr, &extensionCount, extensions.data() );
+        std::vector<VkExtensionProperties> availableExtensions( extensionCount );
+        vkEnumerateInstanceExtensionProperties( nullptr, &extensionCount, availableExtensions.data() );
 
         // Check if required extensions are supported.
         if( glfwExtensionCount > 0 && glfwExtensions != nullptr )
@@ -226,19 +234,42 @@ private:
             {
                 const char* glfwExtension = glfwExtensions[i];
 
-                auto findRequiredExtension = [&glfwExtension]( const auto& extension )
-                {
+                auto findRequiredExtension = [&glfwExtension]( const auto& extension ) {
                     return std::string( extension.extensionName ) == glfwExtension;
                 };
 
-                auto iterator = std::find_if( extensions.begin(), extensions.end(), findRequiredExtension );
+                auto iterator = std::find_if( availableExtensions.begin(), availableExtensions.end(), findRequiredExtension );
 
-                if( iterator == extensions.end() )
+                if( iterator == availableExtensions.end() )
                 {
                     return StatusCode::Fail;
                 }
             }
         }
+
+#ifdef _DEBUG
+        // Enumarate supported validation layers.
+        uint32_t layerCount;
+        vkEnumerateInstanceLayerProperties( &layerCount, nullptr );
+
+        std::vector<VkLayerProperties> availableLayers( layerCount );
+        vkEnumerateInstanceLayerProperties( &layerCount, availableLayers.data() );
+
+        // Check if required validation layers are supported.
+        for( const auto& requiredValidationLayer : m_ValidationLayers )
+        {
+            auto findRequiredValidationLayers = [&requiredValidationLayer]( const auto& validationLayer ) {
+                return std::string( validationLayer.layerName ) == requiredValidationLayer;
+            };
+
+            auto iterator = std::find_if( availableLayers.begin(), availableLayers.end(), findRequiredValidationLayers );
+
+            if( iterator == availableLayers.end() )
+            {
+                return StatusCode::Fail;
+            }
+        }
+#endif
 
         // Sufficient information for creating an instance.
         VkInstanceCreateInfo createInfo    = {};
@@ -246,7 +277,12 @@ private:
         createInfo.pApplicationInfo        = &applicationInfo;
         createInfo.enabledExtensionCount   = glfwExtensionCount;
         createInfo.ppEnabledExtensionNames = glfwExtensions;
-        createInfo.enabledLayerCount       = 0;
+#ifdef _DEBUG
+        createInfo.enabledLayerCount   = static_cast<uint32_t>( m_ValidationLayers.size() );
+        createInfo.ppEnabledLayerNames = m_ValidationLayers.data();
+#else
+        createInfo.enabledLayerCount = 0;
+#endif
 
         if( vkCreateInstance( &createInfo, nullptr, &m_Instance ) != VK_SUCCESS )
         {
