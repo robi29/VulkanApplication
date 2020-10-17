@@ -9,9 +9,9 @@
 #include <GLFW/glfw3.h>
 
 ////////////////////////////////////////////////////////////
-/// vkCreateDebugUtilsMessengerEXT.
+/// vkCreateDebugUtilsMessengerExtension.
 ////////////////////////////////////////////////////////////
-VkResult vkCreateDebugUtilsMessengerEXT(
+VkResult vkCreateDebugUtilsMessengerExtension(
     VkInstance                                instance,
     const VkDebugUtilsMessengerCreateInfoEXT* createInfo,
     const VkAllocationCallbacks*              allocator,
@@ -30,9 +30,9 @@ VkResult vkCreateDebugUtilsMessengerEXT(
 }
 
 ////////////////////////////////////////////////////////////
-/// vkDestroyDebugUtilsMessengerEXT.
+/// vkDestroyDebugUtilsMessengerExtension.
 ////////////////////////////////////////////////////////////
-void vkDestroyDebugUtilsMessengerEXT(
+void vkDestroyDebugUtilsMessengerExtension(
     VkInstance                   instance,
     VkDebugUtilsMessengerEXT     debugMessenger,
     const VkAllocationCallbacks* pAllocator )
@@ -626,7 +626,7 @@ private:
         VkDebugUtilsMessengerCreateInfoEXT createInfo = {};
         PopulateDebugMessengerCreateInfo( createInfo );
 
-        if( vkCreateDebugUtilsMessengerEXT( m_Instance, &createInfo, nullptr, &m_DebugMessenger ) != VK_SUCCESS )
+        if( vkCreateDebugUtilsMessengerExtension( m_Instance, &createInfo, nullptr, &m_DebugMessenger ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create debug utils messenger!" << std::endl;
             return StatusCode::Fail;
@@ -644,7 +644,7 @@ private:
         vkDestroyDevice( m_Device, nullptr );
 
 #ifdef _DEBUG
-        vkDestroyDebugUtilsMessengerEXT( m_Instance, m_DebugMessenger, nullptr );
+        vkDestroyDebugUtilsMessengerExtension( m_Instance, m_DebugMessenger, nullptr );
 #endif
 
         vkDestroyInstance( m_Instance, nullptr );
