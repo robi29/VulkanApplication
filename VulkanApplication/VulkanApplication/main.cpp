@@ -77,6 +77,16 @@ struct QueueFamilyIndices
 };
 
 ////////////////////////////////////////////////////////////
+/// Swap chain support details.
+////////////////////////////////////////////////////////////
+struct SwapChainSupportDetails
+{
+    VkSurfaceCapabilitiesKHR        m_Capabilities;
+    std::vector<VkSurfaceFormatKHR> m_Formats;
+    std::vector<VkPresentModeKHR>   m_PresentModes;
+};
+
+////////////////////////////////////////////////////////////
 /// Application object.
 ////////////////////////////////////////////////////////////
 class Application
@@ -100,6 +110,12 @@ private:
     VkDevice                 m_Device;
     VkQueue                  m_GraphicsQueue;
     VkQueue                  m_PresentQueue;
+    VkSwapchainKHR           m_SwapChain;
+
+    ////////////////////////////////////////////////////////////
+    /// Private Vulkan extensions members.
+    ////////////////////////////////////////////////////////////
+    std::vector<const char*> m_PhysicalDeviceExtensions;
 
     ////////////////////////////////////////////////////////////
     /// Private debugging and validation layer members.
@@ -136,7 +152,11 @@ public:
         , m_Device( VK_NULL_HANDLE )
         , m_GraphicsQueue( VK_NULL_HANDLE )
         , m_PresentQueue( VK_NULL_HANDLE )
+        , m_SwapChain( VK_NULL_HANDLE )
+        , m_PhysicalDeviceExtensions{}
     {
+        m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
+
 #ifdef _DEBUG
         m_ValidationLayers.emplace_back( "VK_LAYER_KHRONOS_validation" );
         m_DebugMessenger = VK_NULL_HANDLE;
@@ -280,6 +300,13 @@ private:
             return result;
         }
 
+        result = CreateSwapChain();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Swap chain creation failed!" << std::endl;
+            return result;
+        }
+
         return result;
     }
 
@@ -343,28 +370,14 @@ private:
         vkEnumerateInstanceExtensionProperties( nullptr, &extensionCount, availableExtensions.data() );
 
         // Check if required extensions are supported.
-        bool foundRequiredExtensions = false;
+        std::set<std::string> requiredRequiredExtensions( extensions.begin(), extensions.end() );
 
-        for( const auto& requiredExtension : extensions )
+        for( const auto& extension : availableExtensions )
         {
-            auto findRequiredExtension = [&requiredExtension]( const auto& extension ) {
-                return std::string( extension.extensionName ) == requiredExtension;
-            };
-
-            auto iterator = std::find_if( availableExtensions.begin(), availableExtensions.end(), findRequiredExtension );
-
-            if( iterator == availableExtensions.end() )
-            {
-                std::cerr << "Cannot find extension: " << iterator->extensionName << std::endl;
-                return StatusCode::Fail;
-            }
-            else
-            {
-                foundRequiredExtensions = true;
-            }
+            requiredRequiredExtensions.erase( extension.extensionName );
         }
 
-        if( !foundRequiredExtensions )
+        if( !requiredRequiredExtensions.empty() )
         {
             std::cerr << "Cannot find required extensions!" << std::endl;
             return StatusCode::Fail;
@@ -379,28 +392,14 @@ private:
         vkEnumerateInstanceLayerProperties( &layerCount, availableLayers.data() );
 
         // Check if required validation layers are supported.
-        bool foundRequiredValidationLayers = false;
+        std::set<std::string> requiredValidationLayers( m_ValidationLayers.begin(), m_ValidationLayers.end() );
 
-        for( const auto& requiredValidationLayer : m_ValidationLayers )
+        for( const auto& layer : availableLayers )
         {
-            auto findRequiredValidationLayers = [&requiredValidationLayer]( const auto& validationLayer ) {
-                return std::string( validationLayer.layerName ) == requiredValidationLayer;
-            };
-
-            auto iterator = std::find_if( availableLayers.begin(), availableLayers.end(), findRequiredValidationLayers );
-
-            if( iterator == availableLayers.end() )
-            {
-                std::cerr << "Cannot find validation layer: " << iterator->layerName << std::endl;
-                return StatusCode::Fail;
-            }
-            else
-            {
-                foundRequiredValidationLayers = true;
-            }
+            requiredValidationLayers.erase( layer.layerName );
         }
 
-        if( !foundRequiredValidationLayers )
+        if( !requiredValidationLayers.empty() )
         {
             std::cerr << "Cannot find required validation layers!" << std::endl;
             return StatusCode::Fail;
@@ -543,13 +542,48 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
-    /// Checks if physical device is suitable.
+    /// Checks if the physical device is suitable.
     ////////////////////////////////////////////////////////////
     bool IsPhysicalDeviceSuitable( VkPhysicalDevice physicalDevice )
     {
-        QueueFamilyIndices indices = FindQueueFamilies( physicalDevice );
+        const QueueFamilyIndices      indices = FindQueueFamilies( physicalDevice );
+        const SwapChainSupportDetails details = QuerySwapChainSupport( physicalDevice );
 
-        return indices.m_HasGraphicsFamily && indices.m_HasPresentFamily;
+        const bool areQueueFamiliesSupported =
+            indices.m_HasGraphicsFamily &&
+            indices.m_HasPresentFamily;
+
+        const bool areExtensionsSupported =
+            areQueueFamiliesSupported &&
+            CheckPhysicalDeviceExtensionSupport( physicalDevice );
+
+        const bool areSwapChainDetailsSupported =
+            areExtensionsSupported &&
+            !details.m_Formats.empty() &&
+            !details.m_PresentModes.empty();
+
+        return areSwapChainDetailsSupported;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Checks for needed physical device extensions support.
+    ////////////////////////////////////////////////////////////
+    bool CheckPhysicalDeviceExtensionSupport( VkPhysicalDevice physicalDevice )
+    {
+        uint32_t extensionCount;
+        vkEnumerateDeviceExtensionProperties( physicalDevice, nullptr, &extensionCount, nullptr );
+
+        std::vector<VkExtensionProperties> availableExtensions( extensionCount );
+        vkEnumerateDeviceExtensionProperties( physicalDevice, nullptr, &extensionCount, availableExtensions.data() );
+
+        std::set<std::string> requiredExtensions( m_PhysicalDeviceExtensions.begin(), m_PhysicalDeviceExtensions.end() );
+
+        for( const auto& extension : availableExtensions )
+        {
+            requiredExtensions.erase( extension.extensionName );
+        }
+
+        return requiredExtensions.empty();
     }
 
     ////////////////////////////////////////////////////////////
@@ -558,7 +592,7 @@ private:
     StatusCode CreateLogicalDevice()
     {
         // Get graphics queue family index.
-        QueueFamilyIndices indices = FindQueueFamilies( m_PhysicalDevice );
+        const QueueFamilyIndices indices = FindQueueFamilies( m_PhysicalDevice );
 
         // Set the queue priority.
         const float queuePriority = 1.0f;
@@ -580,11 +614,13 @@ private:
         }
 
         // Populate logical device create information.
-        VkDeviceCreateInfo deviceCreateInfo   = {};
-        deviceCreateInfo.sType                = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        deviceCreateInfo.queueCreateInfoCount = static_cast<uint32_t>( queueCreateInfos.size() );
-        deviceCreateInfo.pQueueCreateInfos    = queueCreateInfos.data();
-        deviceCreateInfo.pEnabledFeatures     = &m_PhysicalDeviceFeatures;
+        VkDeviceCreateInfo deviceCreateInfo      = {};
+        deviceCreateInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        deviceCreateInfo.queueCreateInfoCount    = static_cast<uint32_t>( queueCreateInfos.size() );
+        deviceCreateInfo.pQueueCreateInfos       = queueCreateInfos.data();
+        deviceCreateInfo.pEnabledFeatures        = &m_PhysicalDeviceFeatures;
+        deviceCreateInfo.enabledExtensionCount   = static_cast<uint32_t>( m_PhysicalDeviceExtensions.size() );
+        deviceCreateInfo.ppEnabledExtensionNames = m_PhysicalDeviceExtensions.data();
 #ifdef _DEBUG
         deviceCreateInfo.enabledLayerCount   = static_cast<uint32_t>( m_ValidationLayers.size() );
         deviceCreateInfo.ppEnabledLayerNames = m_ValidationLayers.data();
@@ -619,7 +655,7 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
-    /// Find different queue families.
+    /// Finds different queue families.
     ////////////////////////////////////////////////////////////
     QueueFamilyIndices FindQueueFamilies( VkPhysicalDevice physicalDevice )
     {
@@ -676,6 +712,163 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates swap chain.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateSwapChain()
+    {
+        // Get swap chain support details
+        SwapChainSupportDetails details = QuerySwapChainSupport( m_PhysicalDevice );
+
+        // Set swap chain settings.
+        VkSurfaceFormatKHR surfaceFormat = ChooseSwapSurfaceFormat( details.m_Formats );
+        VkPresentModeKHR   presentMode   = ChooseSwapPresentMode( details.m_PresentModes );
+        VkExtent2D         extent        = ChooseSwapExtent( details.m_Capabilities );
+
+        // Swap chain count.
+        uint32_t imageCount = details.m_Capabilities.minImageCount + 1;
+
+        if( details.m_Capabilities.maxImageCount > 0 &&
+            details.m_Capabilities.maxImageCount < imageCount )
+        {
+            // Limit swap chain count to the maximum.
+            imageCount = details.m_Capabilities.maxImageCount;
+        }
+
+        // Populate swap chain create information.
+        VkSwapchainCreateInfoKHR createInfo = {};
+        createInfo.sType                    = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        createInfo.surface                  = m_Surface;
+        createInfo.minImageCount            = imageCount;
+        createInfo.imageFormat              = surfaceFormat.format;
+        createInfo.imageColorSpace          = surfaceFormat.colorSpace;
+        createInfo.imageExtent              = extent;
+        createInfo.imageArrayLayers         = 1; // More than one for stereoscopic 3d applications.
+        createInfo.imageUsage               = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+        QueueFamilyIndices indices              = FindQueueFamilies( m_PhysicalDevice );
+        uint32_t           queueFamilyIndices[] = { indices.m_GraphicsFamily, indices.m_PresentFamily };
+
+        if( indices.m_GraphicsFamily != indices.m_PresentFamily )
+        {
+            // Graphics and present queues are in different queue families.
+            createInfo.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
+            createInfo.queueFamilyIndexCount = 2;
+            createInfo.pQueueFamilyIndices   = queueFamilyIndices;
+        }
+        else
+        {
+            // Graphics and present queues are in the same queue family.
+            createInfo.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE;
+            createInfo.queueFamilyIndexCount = 0;       // Optional
+            createInfo.pQueueFamilyIndices   = nullptr; // Optional
+        }
+
+        createInfo.preTransform   = details.m_Capabilities.currentTransform;
+        createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        createInfo.presentMode    = presentMode;
+        createInfo.clipped        = VK_TRUE;
+        createInfo.oldSwapchain   = VK_NULL_HANDLE;
+
+        if( vkCreateSwapchainKHR( m_Device, &createInfo, nullptr, &m_SwapChain ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create swap chain!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Queries swap chain support.
+    ////////////////////////////////////////////////////////////
+    SwapChainSupportDetails QuerySwapChainSupport( VkPhysicalDevice physicalDevice )
+    {
+        SwapChainSupportDetails details;
+
+        // Get swap chain capabilities.
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR( physicalDevice, m_Surface, &details.m_Capabilities );
+
+        // Get swap chain formats.
+        uint32_t formatCount;
+        vkGetPhysicalDeviceSurfaceFormatsKHR( physicalDevice, m_Surface, &formatCount, nullptr );
+
+        if( formatCount != 0 )
+        {
+            details.m_Formats.resize( formatCount );
+            vkGetPhysicalDeviceSurfaceFormatsKHR( physicalDevice, m_Surface, &formatCount, details.m_Formats.data() );
+        }
+
+        // Get swap chain present modes.
+        uint32_t presentModeCount;
+        vkGetPhysicalDeviceSurfacePresentModesKHR( physicalDevice, m_Surface, &presentModeCount, nullptr );
+
+        if( presentModeCount != 0 )
+        {
+            details.m_PresentModes.resize( presentModeCount );
+            vkGetPhysicalDeviceSurfacePresentModesKHR( physicalDevice, m_Surface, &presentModeCount, details.m_PresentModes.data() );
+        }
+
+        return details;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Chooses swap chain surface format.
+    ////////////////////////////////////////////////////////////
+    VkSurfaceFormatKHR ChooseSwapSurfaceFormat( const std::vector<VkSurfaceFormatKHR>& availableFormats )
+    {
+        for( const auto& availableFormat : availableFormats )
+        {
+            // Use 32 bits per pixel (blue, green, red, alpha with 8 bit)/
+            if( availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB &&
+                availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR )
+            {
+                return availableFormat;
+            }
+        }
+
+        std::cerr << "Cannot choose a desire swap chain surface format! Used the first format!" << std::endl;
+        return availableFormats[0];
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Chooses swap chain present mode.
+    ////////////////////////////////////////////////////////////
+    VkPresentModeKHR ChooseSwapPresentMode( const std::vector<VkPresentModeKHR>& availablePresentModes )
+    {
+        for( const auto& availablePresentMode : availablePresentModes )
+        {
+            // Triple buffering is much better than double buffering.
+            if( availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR )
+            {
+                return availablePresentMode;
+            }
+        }
+
+        // Choose double buffering if triple buffering is not available.
+        return VK_PRESENT_MODE_FIFO_KHR;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Chooses swap chain extent.
+    ////////////////////////////////////////////////////////////
+    VkExtent2D ChooseSwapExtent( const VkSurfaceCapabilitiesKHR& capabilities )
+    {
+        if( capabilities.currentExtent.width != UINT32_MAX )
+        {
+            return capabilities.currentExtent;
+        }
+        else
+        {
+            VkExtent2D actualExtent = { m_Width, m_Height };
+
+            actualExtent.width  = std::max( capabilities.minImageExtent.width, std::min( capabilities.maxImageExtent.width, actualExtent.width ) );
+            actualExtent.height = std::max( capabilities.minImageExtent.height, std::min( capabilities.maxImageExtent.height, actualExtent.height ) );
+
+            return actualExtent;
+        }
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Populates debug messenger create information.
     ////////////////////////////////////////////////////////////
     void PopulateDebugMessengerCreateInfo( VkDebugUtilsMessengerCreateInfoEXT& createInfo )
@@ -714,6 +907,8 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CleanupVulkan()
     {
+        vkDestroySwapchainKHR( m_Device, m_SwapChain, nullptr );
+
         vkDestroyDevice( m_Device, nullptr );
 
         vkDestroySurfaceKHR( m_Instance, m_Surface, nullptr );
