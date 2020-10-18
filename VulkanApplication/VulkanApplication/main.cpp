@@ -370,6 +370,13 @@ private:
             return result;
         }
 
+        result = RecordCommandBuffers();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Command buffers recording failed!" << std::endl;
+            return result;
+        }
+
         return result;
     }
 
@@ -1293,6 +1300,62 @@ private:
         {
             std::cerr << "Cannot create command buffer!" << std::endl;
             return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Records command buffers.
+    ////////////////////////////////////////////////////////////
+    StatusCode RecordCommandBuffers()
+    {
+        for( size_t i = 0; i < m_CommandBuffers.size(); ++i )
+        {
+            // Populate command buffer begin information.
+            VkCommandBufferBeginInfo beginInfo = {};
+            beginInfo.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            beginInfo.flags                    = 0;       // Optional.
+            beginInfo.pInheritanceInfo         = nullptr; // Optional.
+
+            // Begin recording the command buffer.
+            if( vkBeginCommandBuffer( m_CommandBuffers[i], &beginInfo ) != VK_SUCCESS )
+            {
+                std::cerr << "Failed to begin recording command buffer!" << std::endl;
+                return StatusCode::Fail;
+            }
+
+            // Populate render pass begin information.
+            VkRenderPassBeginInfo renderPassInfo = {};
+            renderPassInfo.sType                 = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            renderPassInfo.renderPass            = m_RenderPass;
+            renderPassInfo.framebuffer           = m_SwapChainFramebuffers[i];
+            renderPassInfo.renderArea.offset     = { 0, 0 };
+            renderPassInfo.renderArea.extent     = m_SwapChainExtent;
+
+            // Define a clear color.
+            VkClearValue clearColor        = { 0.0f, 0.0f, 0.0f, 1.0f };
+            renderPassInfo.clearValueCount = 1;
+            renderPassInfo.pClearValues    = &clearColor;
+
+            // Begin the render pass.
+            vkCmdBeginRenderPass( m_CommandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
+
+            // Bind the graphics pipeline.
+            vkCmdBindPipeline( m_CommandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline );
+
+            // Draw.
+            vkCmdDraw( m_CommandBuffers[i], 3, 1, 0, 0 );
+
+            // End the render pass.
+            vkCmdEndRenderPass( m_CommandBuffers[i] );
+
+            // End recoring the command buffer.
+            if( vkEndCommandBuffer( m_CommandBuffers[i] ) != VK_SUCCESS )
+            {
+                std::cerr << "Failed to record command buffer!" << std::endl;
+                return StatusCode::Fail;
+            }
         }
 
         return StatusCode::Success;
