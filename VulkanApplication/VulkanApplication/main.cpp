@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cstdlib>
 
+#include <fstream>
 #include <set>
 #include <vector>
 
@@ -115,6 +116,7 @@ private:
     VkFormat                 m_SwapChainImageFormat;
     VkExtent2D               m_SwapChainExtent;
     std::vector<VkImageView> m_SwapChainImageViews;
+    VkPipelineLayout         m_PipelineLayout;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -161,6 +163,7 @@ public:
         , m_SwapChainImageFormat( VK_FORMAT_UNDEFINED )
         , m_SwapChainExtent{}
         , m_SwapChainImageViews{}
+        , m_PipelineLayout( VK_NULL_HANDLE )
         , m_PhysicalDeviceExtensions{}
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
@@ -319,6 +322,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Image views creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateGraphicsPipeline();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Graphics pipeline creation failed!" << std::endl;
             return result;
         }
 
@@ -932,6 +942,175 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates graphics pipeline.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateGraphicsPipeline()
+    {
+        // Read the bytecode of shaders.
+        const auto vertexShaderCode   = ReadBinaryFile( "Shaders/vert.spv" );
+        const auto fragmentShaderCode = ReadBinaryFile( "Shaders/frag.spv" );
+
+        if( vertexShaderCode.empty() || fragmentShaderCode.empty() )
+        {
+            std::cerr << "Empty shader files!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Create shader modules for the shaders.
+        VkShaderModule vertexShaderModule   = CreateShaderModule( vertexShaderCode );
+        VkShaderModule fragmentShaderModule = CreateShaderModule( fragmentShaderCode );
+
+        // Create vertex shader stage.
+        VkPipelineShaderStageCreateInfo vertexShaderStageInfo = {};
+        vertexShaderStageInfo.sType                           = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vertexShaderStageInfo.stage                           = VK_SHADER_STAGE_VERTEX_BIT;
+        vertexShaderStageInfo.module                          = vertexShaderModule;
+        vertexShaderStageInfo.pName                           = "main";
+
+        // Create fragment shader stage.
+        VkPipelineShaderStageCreateInfo fragmentShaderStageInfo = {};
+        fragmentShaderStageInfo.sType                           = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fragmentShaderStageInfo.stage                           = VK_SHADER_STAGE_FRAGMENT_BIT;
+        fragmentShaderStageInfo.module                          = fragmentShaderModule;
+        fragmentShaderStageInfo.pName                           = "main";
+
+        // Create programmable pipeline stages.
+        VkPipelineShaderStageCreateInfo shaderStages[] = {
+            vertexShaderStageInfo,
+            fragmentShaderStageInfo
+        };
+
+        // Create vertex input state.
+        VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
+        vertexInputInfo.sType                                = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInputInfo.vertexBindingDescriptionCount        = 0;
+        vertexInputInfo.pVertexBindingDescriptions           = nullptr; // Optional.
+        vertexInputInfo.vertexAttributeDescriptionCount      = 0;
+        vertexInputInfo.pVertexAttributeDescriptions         = nullptr; // Optional.
+
+        // Create input assembly state.
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
+        inputAssembly.sType                                  = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology                               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        inputAssembly.primitiveRestartEnable                 = VK_FALSE;
+
+        // Viewports.
+        VkViewport viewport = {};
+        viewport.x          = 0.0f;
+        viewport.y          = 0.0f;
+        viewport.width      = static_cast<float>( m_SwapChainExtent.width );
+        viewport.height     = static_cast<float>( m_SwapChainExtent.height );
+        viewport.minDepth   = 0.0f;
+        viewport.maxDepth   = 1.0f;
+
+        // Scissors.
+        VkRect2D scissor = {};
+        scissor.offset   = { 0, 0 };
+        scissor.extent   = m_SwapChainExtent;
+
+        // Create viewport state.
+        VkPipelineViewportStateCreateInfo viewportState = {};
+        viewportState.sType                             = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount                     = 1;
+        viewportState.pViewports                        = &viewport;
+        viewportState.scissorCount                      = 1;
+        viewportState.pScissors                         = &scissor;
+
+        // Rasterizeration state.
+        VkPipelineRasterizationStateCreateInfo rasterizer = {};
+        rasterizer.sType                                  = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.depthClampEnable                       = VK_FALSE;
+        rasterizer.rasterizerDiscardEnable                = VK_FALSE;
+        rasterizer.polygonMode                            = VK_POLYGON_MODE_FILL;
+        rasterizer.lineWidth                              = 1.0f;
+        rasterizer.cullMode                               = VK_CULL_MODE_BACK_BIT;
+        rasterizer.frontFace                              = VK_FRONT_FACE_CLOCKWISE;
+        rasterizer.depthBiasEnable                        = VK_FALSE;
+        rasterizer.depthBiasConstantFactor                = 0.0f; // Optional.
+        rasterizer.depthBiasClamp                         = 0.0f; // Optional.
+        rasterizer.depthBiasSlopeFactor                   = 0.0f; // Optional.
+
+        // Multisample state.
+        VkPipelineMultisampleStateCreateInfo multisampling = {};
+        multisampling.sType                                = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisampling.sampleShadingEnable                  = VK_FALSE;
+        multisampling.rasterizationSamples                 = VK_SAMPLE_COUNT_1_BIT;
+        multisampling.minSampleShading                     = 1.0f;     // Optional.
+        multisampling.pSampleMask                          = nullptr;  // Optional.
+        multisampling.alphaToCoverageEnable                = VK_FALSE; // Optional.
+        multisampling.alphaToOneEnable                     = VK_FALSE; // Optional.
+
+        // Color blending attachment state.
+        VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
+        colorBlendAttachment.colorWriteMask                      = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        colorBlendAttachment.blendEnable                         = VK_FALSE;
+        colorBlendAttachment.srcColorBlendFactor                 = VK_BLEND_FACTOR_ONE;  // Optional.
+        colorBlendAttachment.dstColorBlendFactor                 = VK_BLEND_FACTOR_ZERO; // Optional.
+        colorBlendAttachment.colorBlendOp                        = VK_BLEND_OP_ADD;      // Optional.
+        colorBlendAttachment.srcAlphaBlendFactor                 = VK_BLEND_FACTOR_ONE;  // Optional.
+        colorBlendAttachment.dstAlphaBlendFactor                 = VK_BLEND_FACTOR_ZERO; // Optional.
+        colorBlendAttachment.alphaBlendOp                        = VK_BLEND_OP_ADD;      // Optional.
+
+        // Color blending state.
+        VkPipelineColorBlendStateCreateInfo colorBlending = {};
+        colorBlending.sType                               = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlending.logicOpEnable                       = VK_FALSE;
+        colorBlending.logicOp                             = VK_LOGIC_OP_COPY; // Optional.
+        colorBlending.attachmentCount                     = 1;
+        colorBlending.pAttachments                        = &colorBlendAttachment;
+        colorBlending.blendConstants[0]                   = 0.0f; // Optional.
+        colorBlending.blendConstants[1]                   = 0.0f; // Optional.
+        colorBlending.blendConstants[2]                   = 0.0f; // Optional.
+        colorBlending.blendConstants[3]                   = 0.0f; // Optional.
+
+        // Create a pipeline layout.
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+        pipelineLayoutInfo.sType                      = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.setLayoutCount             = 0;       // Optional.
+        pipelineLayoutInfo.pSetLayouts                = nullptr; // Optional.
+        pipelineLayoutInfo.pushConstantRangeCount     = 0;       // Optional.
+        pipelineLayoutInfo.pPushConstantRanges        = nullptr; // Optional.
+
+        if( vkCreatePipelineLayout( m_Device, &pipelineLayoutInfo, nullptr, &m_PipelineLayout ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create pipeline layout!" << std::endl;
+
+            // Destroy the shader modules.
+            vkDestroyShaderModule( m_Device, fragmentShaderModule, nullptr );
+            vkDestroyShaderModule( m_Device, vertexShaderModule, nullptr );
+
+            return StatusCode::Fail;
+        }
+
+        // Destroy the shader modules.
+        vkDestroyShaderModule( m_Device, fragmentShaderModule, nullptr );
+        vkDestroyShaderModule( m_Device, vertexShaderModule, nullptr );
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Creates shader module.
+    ////////////////////////////////////////////////////////////
+    VkShaderModule CreateShaderModule( const std::vector<char>& code )
+    {
+        VkShaderModuleCreateInfo createInfo = {};
+        createInfo.sType                    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        createInfo.codeSize                 = code.size();
+        createInfo.pCode                    = reinterpret_cast<const uint32_t*>( code.data() );
+
+        VkShaderModule shaderModule = {};
+
+        if( vkCreateShaderModule( m_Device, &createInfo, nullptr, &shaderModule ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create shader module!" << std::endl;
+            return shaderModule;
+        }
+
+        return shaderModule;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Populates debug messenger create information.
     ////////////////////////////////////////////////////////////
     void PopulateDebugMessengerCreateInfo( VkDebugUtilsMessengerCreateInfoEXT& createInfo )
@@ -970,6 +1149,8 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CleanupVulkan()
     {
+        vkDestroyPipelineLayout( m_Device, m_PipelineLayout, nullptr );
+
         for( auto imageView : m_SwapChainImageViews )
         {
             vkDestroyImageView( m_Device, imageView, nullptr );
@@ -988,6 +1169,40 @@ private:
         vkDestroyInstance( m_Instance, nullptr );
 
         return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Reads binary data from files.
+    ////////////////////////////////////////////////////////////
+    static std::vector<char> ReadBinaryFile( const std::string& filename )
+    {
+        // Read file from the end of the file to determine the size of the file.
+        std::ifstream     file( filename, std::ios::ate | std::ios::binary );
+        std::vector<char> buffer = {};
+
+        if( !file.is_open() )
+        {
+            std::cerr << "Cannot open " << filename << " file!" << std::endl;
+            return buffer;
+        }
+
+        // Get the size of the binary file.
+        const uint32_t fileSize = static_cast<uint32_t>( file.tellg() );
+
+        // Resize the buffer.
+        buffer.resize( fileSize );
+
+        // Seek back to the beginning of the file.
+        file.seekg( 0 );
+
+        // Read all of the bytes at once.
+        file.read( buffer.data(), fileSize );
+
+        // Close the file.
+        file.close();
+
+        // Return the buffer.
+        return buffer;
     }
 
     ////////////////////////////////////////////////////////////
