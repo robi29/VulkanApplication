@@ -9,3 +9,4 @@ VulkanApplication/Debug
 VulkanApplication/Release
 VulkanApplication/VulkanApplication/Debug
 VulkanApplication/VulkanApplication/Release
+*.spv
