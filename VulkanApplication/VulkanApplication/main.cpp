@@ -118,6 +118,7 @@ private:
     std::vector<VkImageView> m_SwapChainImageViews;
     VkRenderPass             m_RenderPass;
     VkPipelineLayout         m_PipelineLayout;
+    VkPipeline               m_GraphicsPipeline;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -166,6 +167,7 @@ public:
         , m_SwapChainImageViews{}
         , m_RenderPass( VK_NULL_HANDLE )
         , m_PipelineLayout( VK_NULL_HANDLE )
+        , m_GraphicsPipeline( VK_NULL_HANDLE )
         , m_PhysicalDeviceExtensions{}
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
@@ -1136,6 +1138,36 @@ private:
             return StatusCode::Fail;
         }
 
+        // Populate graphics pipeline information.
+        VkGraphicsPipelineCreateInfo pipelineInfo = {};
+        pipelineInfo.sType                        = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount                   = 2;
+        pipelineInfo.pStages                      = shaderStages;
+        pipelineInfo.pVertexInputState            = &vertexInputInfo;
+        pipelineInfo.pInputAssemblyState          = &inputAssembly;
+        pipelineInfo.pViewportState               = &viewportState;
+        pipelineInfo.pRasterizationState          = &rasterizer;
+        pipelineInfo.pMultisampleState            = &multisampling;
+        pipelineInfo.pDepthStencilState           = nullptr; // Optional.
+        pipelineInfo.pColorBlendState             = &colorBlending;
+        pipelineInfo.pDynamicState                = nullptr; // Optional.
+        pipelineInfo.layout                       = m_PipelineLayout;
+        pipelineInfo.renderPass                   = m_RenderPass;
+        pipelineInfo.subpass                      = 0;
+        pipelineInfo.basePipelineHandle           = VK_NULL_HANDLE; // Optional.
+        pipelineInfo.basePipelineIndex            = -1;             // Optional.
+
+        if( vkCreateGraphicsPipelines( m_Device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_GraphicsPipeline ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create graphics pipeline!" << std::endl;
+
+            // Destroy the shader modules.
+            vkDestroyShaderModule( m_Device, fragmentShaderModule, nullptr );
+            vkDestroyShaderModule( m_Device, vertexShaderModule, nullptr );
+
+            return StatusCode::Fail;
+        }
+
         // Destroy the shader modules.
         vkDestroyShaderModule( m_Device, fragmentShaderModule, nullptr );
         vkDestroyShaderModule( m_Device, vertexShaderModule, nullptr );
@@ -1203,6 +1235,8 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CleanupVulkan()
     {
+        vkDestroyPipeline( m_Device, m_GraphicsPipeline, nullptr );
+
         vkDestroyPipelineLayout( m_Device, m_PipelineLayout, nullptr );
 
         vkDestroyRenderPass( m_Device, m_RenderPass, nullptr );
