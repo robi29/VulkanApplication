@@ -117,7 +117,7 @@ private:
     VkExtent2D               m_SwapChainExtent;
     std::vector<VkImageView> m_SwapChainImageViews;
     VkRenderPass             m_RenderPass;
-    VkPipelineLayout         m_PipelineLayout;
+    VkPipelineLayout         m_GraphicsPipelineLayout;
     VkPipeline               m_GraphicsPipeline;
 
     ////////////////////////////////////////////////////////////
@@ -166,7 +166,7 @@ public:
         , m_SwapChainExtent{}
         , m_SwapChainImageViews{}
         , m_RenderPass( VK_NULL_HANDLE )
-        , m_PipelineLayout( VK_NULL_HANDLE )
+        , m_GraphicsPipelineLayout( VK_NULL_HANDLE )
         , m_GraphicsPipeline( VK_NULL_HANDLE )
         , m_PhysicalDeviceExtensions{}
     {
@@ -795,8 +795,8 @@ private:
         {
             // Graphics and present queues are in the same queue family.
             createInfo.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE;
-            createInfo.queueFamilyIndexCount = 0;       // Optional
-            createInfo.pQueueFamilyIndices   = nullptr; // Optional
+            createInfo.queueFamilyIndexCount = 0;       // Optional.
+            createInfo.pQueueFamilyIndices   = nullptr; // Optional.
         }
 
         createInfo.preTransform   = details.m_Capabilities.currentTransform;
@@ -1127,7 +1127,7 @@ private:
         pipelineLayoutInfo.pushConstantRangeCount     = 0;       // Optional.
         pipelineLayoutInfo.pPushConstantRanges        = nullptr; // Optional.
 
-        if( vkCreatePipelineLayout( m_Device, &pipelineLayoutInfo, nullptr, &m_PipelineLayout ) != VK_SUCCESS )
+        if( vkCreatePipelineLayout( m_Device, &pipelineLayoutInfo, nullptr, &m_GraphicsPipelineLayout ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create pipeline layout!" << std::endl;
 
@@ -1151,7 +1151,7 @@ private:
         pipelineInfo.pDepthStencilState           = nullptr; // Optional.
         pipelineInfo.pColorBlendState             = &colorBlending;
         pipelineInfo.pDynamicState                = nullptr; // Optional.
-        pipelineInfo.layout                       = m_PipelineLayout;
+        pipelineInfo.layout                       = m_GraphicsPipelineLayout;
         pipelineInfo.renderPass                   = m_RenderPass;
         pipelineInfo.subpass                      = 0;
         pipelineInfo.basePipelineHandle           = VK_NULL_HANDLE; // Optional.
@@ -1237,7 +1237,7 @@ private:
     {
         vkDestroyPipeline( m_Device, m_GraphicsPipeline, nullptr );
 
-        vkDestroyPipelineLayout( m_Device, m_PipelineLayout, nullptr );
+        vkDestroyPipelineLayout( m_Device, m_GraphicsPipelineLayout, nullptr );
 
         vkDestroyRenderPass( m_Device, m_RenderPass, nullptr );
 
