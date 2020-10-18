@@ -120,6 +120,7 @@ private:
     VkPipelineLayout           m_GraphicsPipelineLayout;
     VkPipeline                 m_GraphicsPipeline;
     std::vector<VkFramebuffer> m_SwapChainFramebuffers;
+    VkCommandPool              m_CommandPool;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -170,6 +171,7 @@ public:
         , m_GraphicsPipelineLayout( VK_NULL_HANDLE )
         , m_GraphicsPipeline( VK_NULL_HANDLE )
         , m_SwapChainFramebuffers{}
+        , m_CommandPool( VK_NULL_HANDLE )
         , m_PhysicalDeviceExtensions{}
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
@@ -349,6 +351,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Frame buffers creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateCommandPool();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Command pool creation failed!" << std::endl;
             return result;
         }
 
@@ -1235,6 +1244,27 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates command pool.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateCommandPool()
+    {
+        QueueFamilyIndices queueFamilyIndices = FindQueueFamilies( m_PhysicalDevice );
+
+        VkCommandPoolCreateInfo poolInfo = {};
+        poolInfo.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.queueFamilyIndex        = queueFamilyIndices.m_GraphicsFamily;
+        poolInfo.flags                   = 0; // Optional.
+
+        if( vkCreateCommandPool( m_Device, &poolInfo, nullptr, &m_CommandPool ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create command pool!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Populates debug messenger create information.
     ////////////////////////////////////////////////////////////
     void PopulateDebugMessengerCreateInfo( VkDebugUtilsMessengerCreateInfoEXT& createInfo )
@@ -1273,6 +1303,8 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CleanupVulkan()
     {
+        vkDestroyCommandPool( m_Device, m_CommandPool, nullptr );
+
         for( auto& framebuffer : m_SwapChainFramebuffers )
         {
             vkDestroyFramebuffer( m_Device, framebuffer, nullptr );
