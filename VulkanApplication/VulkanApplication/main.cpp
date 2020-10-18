@@ -116,6 +116,7 @@ private:
     VkFormat                 m_SwapChainImageFormat;
     VkExtent2D               m_SwapChainExtent;
     std::vector<VkImageView> m_SwapChainImageViews;
+    VkRenderPass             m_RenderPass;
     VkPipelineLayout         m_PipelineLayout;
 
     ////////////////////////////////////////////////////////////
@@ -163,6 +164,7 @@ public:
         , m_SwapChainImageFormat( VK_FORMAT_UNDEFINED )
         , m_SwapChainExtent{}
         , m_SwapChainImageViews{}
+        , m_RenderPass( VK_NULL_HANDLE )
         , m_PipelineLayout( VK_NULL_HANDLE )
         , m_PhysicalDeviceExtensions{}
     {
@@ -322,6 +324,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Image views creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateRenderPass();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Render pass creation failed!" << std::endl;
             return result;
         }
 
@@ -942,6 +951,51 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates render pass.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateRenderPass()
+    {
+        // Populate attachment description information.
+        VkAttachmentDescription colorAttachment = {};
+        colorAttachment.format                  = m_SwapChainImageFormat;
+        colorAttachment.samples                 = VK_SAMPLE_COUNT_1_BIT;
+        colorAttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;
+        colorAttachment.stencilLoadOp           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorAttachment.stencilStoreOp          = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        colorAttachment.initialLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        colorAttachment.finalLayout             = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        // Populate attachment reference information.
+        VkAttachmentReference colorAttachmentReference = {};
+        colorAttachmentReference.attachment            = 0;
+        colorAttachmentReference.layout                = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        // Populate subpass information.
+        VkSubpassDescription subpass = {};
+        subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments    = &colorAttachmentReference;
+
+        // Populate render pass information.
+        VkRenderPassCreateInfo renderPassInfo = {};
+        renderPassInfo.sType                  = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        renderPassInfo.attachmentCount        = 1;
+        renderPassInfo.pAttachments           = &colorAttachment;
+        renderPassInfo.subpassCount           = 1;
+        renderPassInfo.pSubpasses             = &subpass;
+
+        // Create render pass.
+        if( vkCreateRenderPass( m_Device, &renderPassInfo, nullptr, &m_RenderPass ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create render pass!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Creates graphics pipeline.
     ////////////////////////////////////////////////////////////
     StatusCode CreateGraphicsPipeline()
@@ -1150,6 +1204,8 @@ private:
     StatusCode CleanupVulkan()
     {
         vkDestroyPipelineLayout( m_Device, m_PipelineLayout, nullptr );
+
+        vkDestroyRenderPass( m_Device, m_RenderPass, nullptr );
 
         for( auto imageView : m_SwapChainImageViews )
         {
