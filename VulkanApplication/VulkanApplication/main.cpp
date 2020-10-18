@@ -104,21 +104,22 @@ private:
     ////////////////////////////////////////////////////////////
     /// Private Vulkan members.
     ////////////////////////////////////////////////////////////
-    VkInstance               m_Instance;
-    VkSurfaceKHR             m_Surface;
-    VkPhysicalDevice         m_PhysicalDevice;
-    VkPhysicalDeviceFeatures m_PhysicalDeviceFeatures;
-    VkDevice                 m_Device;
-    VkQueue                  m_GraphicsQueue;
-    VkQueue                  m_PresentQueue;
-    VkSwapchainKHR           m_SwapChain;
-    std::vector<VkImage>     m_SwapChainImages;
-    VkFormat                 m_SwapChainImageFormat;
-    VkExtent2D               m_SwapChainExtent;
-    std::vector<VkImageView> m_SwapChainImageViews;
-    VkRenderPass             m_RenderPass;
-    VkPipelineLayout         m_GraphicsPipelineLayout;
-    VkPipeline               m_GraphicsPipeline;
+    VkInstance                 m_Instance;
+    VkSurfaceKHR               m_Surface;
+    VkPhysicalDevice           m_PhysicalDevice;
+    VkPhysicalDeviceFeatures   m_PhysicalDeviceFeatures;
+    VkDevice                   m_Device;
+    VkQueue                    m_GraphicsQueue;
+    VkQueue                    m_PresentQueue;
+    VkSwapchainKHR             m_SwapChain;
+    std::vector<VkImage>       m_SwapChainImages;
+    VkFormat                   m_SwapChainImageFormat;
+    VkExtent2D                 m_SwapChainExtent;
+    std::vector<VkImageView>   m_SwapChainImageViews;
+    VkRenderPass               m_RenderPass;
+    VkPipelineLayout           m_GraphicsPipelineLayout;
+    VkPipeline                 m_GraphicsPipeline;
+    std::vector<VkFramebuffer> m_SwapChainFramebuffers;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -168,6 +169,7 @@ public:
         , m_RenderPass( VK_NULL_HANDLE )
         , m_GraphicsPipelineLayout( VK_NULL_HANDLE )
         , m_GraphicsPipeline( VK_NULL_HANDLE )
+        , m_SwapChainFramebuffers{}
         , m_PhysicalDeviceExtensions{}
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
@@ -340,6 +342,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Graphics pipeline creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateFramebuffers();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Frame buffers creation failed!" << std::endl;
             return result;
         }
 
@@ -1197,6 +1206,35 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates frame buffers.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateFramebuffers()
+    {
+        // Create a frame buffer for all of the images in the swap chain.
+        m_SwapChainFramebuffers.resize( m_SwapChainImageViews.size() );
+
+        for( size_t i = 0; i < m_SwapChainImageViews.size(); i++ )
+        {
+            VkFramebufferCreateInfo framebufferInfo = {};
+            framebufferInfo.sType                   = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebufferInfo.renderPass              = m_RenderPass;
+            framebufferInfo.attachmentCount         = 1;
+            framebufferInfo.pAttachments            = &m_SwapChainImageViews[i];
+            framebufferInfo.width                   = m_SwapChainExtent.width;
+            framebufferInfo.height                  = m_SwapChainExtent.height;
+            framebufferInfo.layers                  = 1;
+
+            if( vkCreateFramebuffer( m_Device, &framebufferInfo, nullptr, &m_SwapChainFramebuffers[i] ) != VK_SUCCESS )
+            {
+                std::cerr << "Cannot create frame buffer!" << std::endl;
+                return StatusCode::Fail;
+            }
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Populates debug messenger create information.
     ////////////////////////////////////////////////////////////
     void PopulateDebugMessengerCreateInfo( VkDebugUtilsMessengerCreateInfoEXT& createInfo )
@@ -1235,13 +1273,18 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CleanupVulkan()
     {
+        for( auto& framebuffer : m_SwapChainFramebuffers )
+        {
+            vkDestroyFramebuffer( m_Device, framebuffer, nullptr );
+        }
+
         vkDestroyPipeline( m_Device, m_GraphicsPipeline, nullptr );
 
         vkDestroyPipelineLayout( m_Device, m_GraphicsPipelineLayout, nullptr );
 
         vkDestroyRenderPass( m_Device, m_RenderPass, nullptr );
 
-        for( auto imageView : m_SwapChainImageViews )
+        for( auto& imageView : m_SwapChainImageViews )
         {
             vkDestroyImageView( m_Device, imageView, nullptr );
         }
