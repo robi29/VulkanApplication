@@ -104,23 +104,24 @@ private:
     ////////////////////////////////////////////////////////////
     /// Private Vulkan members.
     ////////////////////////////////////////////////////////////
-    VkInstance                 m_Instance;
-    VkSurfaceKHR               m_Surface;
-    VkPhysicalDevice           m_PhysicalDevice;
-    VkPhysicalDeviceFeatures   m_PhysicalDeviceFeatures;
-    VkDevice                   m_Device;
-    VkQueue                    m_GraphicsQueue;
-    VkQueue                    m_PresentQueue;
-    VkSwapchainKHR             m_SwapChain;
-    std::vector<VkImage>       m_SwapChainImages;
-    VkFormat                   m_SwapChainImageFormat;
-    VkExtent2D                 m_SwapChainExtent;
-    std::vector<VkImageView>   m_SwapChainImageViews;
-    VkRenderPass               m_RenderPass;
-    VkPipelineLayout           m_GraphicsPipelineLayout;
-    VkPipeline                 m_GraphicsPipeline;
-    std::vector<VkFramebuffer> m_SwapChainFramebuffers;
-    VkCommandPool              m_CommandPool;
+    VkInstance                   m_Instance;
+    VkSurfaceKHR                 m_Surface;
+    VkPhysicalDevice             m_PhysicalDevice;
+    VkPhysicalDeviceFeatures     m_PhysicalDeviceFeatures;
+    VkDevice                     m_Device;
+    VkQueue                      m_GraphicsQueue;
+    VkQueue                      m_PresentQueue;
+    VkSwapchainKHR               m_SwapChain;
+    std::vector<VkImage>         m_SwapChainImages;
+    VkFormat                     m_SwapChainImageFormat;
+    VkExtent2D                   m_SwapChainExtent;
+    std::vector<VkImageView>     m_SwapChainImageViews;
+    VkRenderPass                 m_RenderPass;
+    VkPipelineLayout             m_GraphicsPipelineLayout;
+    VkPipeline                   m_GraphicsPipeline;
+    std::vector<VkFramebuffer>   m_SwapChainFramebuffers;
+    VkCommandPool                m_CommandPool;
+    std::vector<VkCommandBuffer> m_CommandBuffers;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -172,6 +173,7 @@ public:
         , m_GraphicsPipeline( VK_NULL_HANDLE )
         , m_SwapChainFramebuffers{}
         , m_CommandPool( VK_NULL_HANDLE )
+        , m_CommandBuffers{}
         , m_PhysicalDeviceExtensions{}
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
@@ -358,6 +360,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Command pool creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateCommandBuffers();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Command buffers creation failed!" << std::endl;
             return result;
         }
 
@@ -1222,7 +1231,7 @@ private:
         // Create a frame buffer for all of the images in the swap chain.
         m_SwapChainFramebuffers.resize( m_SwapChainImageViews.size() );
 
-        for( size_t i = 0; i < m_SwapChainImageViews.size(); i++ )
+        for( size_t i = 0; i < m_SwapChainImageViews.size(); ++i )
         {
             VkFramebufferCreateInfo framebufferInfo = {};
             framebufferInfo.sType                   = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -1258,6 +1267,31 @@ private:
         if( vkCreateCommandPool( m_Device, &poolInfo, nullptr, &m_CommandPool ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create command pool!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Creates command buffers.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateCommandBuffers()
+    {
+        // Create a command buffer for all frame buffers.
+        m_CommandBuffers.resize( m_SwapChainFramebuffers.size() );
+
+        // Populate command buffer allocate information.
+        VkCommandBufferAllocateInfo allocInfo = {};
+        allocInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool                 = m_CommandPool;
+        allocInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount          = static_cast<uint32_t>( m_CommandBuffers.size() );
+
+        // Create command buffers.
+        if( vkAllocateCommandBuffers( m_Device, &allocInfo, m_CommandBuffers.data() ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create command buffer!" << std::endl;
             return StatusCode::Fail;
         }
 
