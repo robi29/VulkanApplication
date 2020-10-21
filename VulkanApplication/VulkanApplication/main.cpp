@@ -396,14 +396,22 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode MainLoop()
     {
+        StatusCode result = StatusCode::Success;
+
         // Check for events.
-        while( !glfwWindowShouldClose( m_Window ) )
+        while( !glfwWindowShouldClose( m_Window ) && result == StatusCode::Success )
         {
             glfwPollEvents();
-            DrawFrame();
+            result = DrawFrame();
         }
 
-        return StatusCode::Success;
+        if( vkDeviceWaitIdle( m_Device ) != VK_SUCCESS )
+        {
+            std::cerr << "Failed to waiting for device!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        return result;
     }
 
     ////////////////////////////////////////////////////////////
@@ -1442,6 +1450,12 @@ private:
         if( vkQueuePresentKHR( m_PresentQueue, &presentInfo ) != VK_SUCCESS )
         {
             std::cerr << "Failed to present swap chain!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        if( vkQueueWaitIdle( m_PresentQueue ) != VK_SUCCESS )
+        {
+            std::cerr << "Failed to waiting for present queue!" << std::endl;
             return StatusCode::Fail;
         }
 
