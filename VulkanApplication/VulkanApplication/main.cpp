@@ -122,6 +122,8 @@ private:
     std::vector<VkFramebuffer>   m_SwapChainFramebuffers;
     VkCommandPool                m_CommandPool;
     std::vector<VkCommandBuffer> m_CommandBuffers;
+    VkSemaphore                  m_ImageAvailableSemaphore;
+    VkSemaphore                  m_RenderFinishedSemaphore;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -174,6 +176,8 @@ public:
         , m_SwapChainFramebuffers{}
         , m_CommandPool( VK_NULL_HANDLE )
         , m_CommandBuffers{}
+        , m_ImageAvailableSemaphore( VK_NULL_HANDLE )
+        , m_RenderFinishedSemaphore( VK_NULL_HANDLE )
         , m_PhysicalDeviceExtensions{}
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
@@ -374,6 +378,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Command buffers recording failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateSemaphores();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Semaphores creation failed!" << std::endl;
             return result;
         }
 
@@ -1362,6 +1373,24 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates semaphores to signal events.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateSemaphores()
+    {
+        VkSemaphoreCreateInfo semaphoreInfo = {};
+        semaphoreInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+        if( vkCreateSemaphore( m_Device, &semaphoreInfo, nullptr, &m_ImageAvailableSemaphore ) != VK_SUCCESS ||
+            vkCreateSemaphore( m_Device, &semaphoreInfo, nullptr, &m_RenderFinishedSemaphore ) != VK_SUCCESS )
+        {
+            std::cerr << "Failed to create semaphores!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Populates debug messenger create information.
     ////////////////////////////////////////////////////////////
     void PopulateDebugMessengerCreateInfo( VkDebugUtilsMessengerCreateInfoEXT& createInfo )
@@ -1400,6 +1429,9 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CleanupVulkan()
     {
+        vkDestroySemaphore( m_Device, m_RenderFinishedSemaphore, nullptr );
+        vkDestroySemaphore( m_Device, m_ImageAvailableSemaphore, nullptr );
+
         vkDestroyCommandPool( m_Device, m_CommandPool, nullptr );
 
         for( auto& framebuffer : m_SwapChainFramebuffers )
