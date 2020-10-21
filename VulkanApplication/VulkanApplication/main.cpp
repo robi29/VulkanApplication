@@ -1429,6 +1429,22 @@ private:
             return StatusCode::Fail;
         }
 
+        // Present the swap chain.
+        VkPresentInfoKHR presentInfo   = {};
+        presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores    = &m_RenderFinishedSemaphore;
+        presentInfo.swapchainCount     = 1;
+        presentInfo.pSwapchains        = &m_SwapChain;
+        presentInfo.pImageIndices      = &imageIndex;
+        presentInfo.pResults           = nullptr; // Optional.
+
+        if( vkQueuePresentKHR( m_PresentQueue, &presentInfo ) != VK_SUCCESS )
+        {
+            std::cerr << "Failed to present swap chain!" << std::endl;
+            return StatusCode::Fail;
+        }
+
         return StatusCode::Success;
     }
 
