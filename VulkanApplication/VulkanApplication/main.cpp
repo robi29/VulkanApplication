@@ -400,6 +400,7 @@ private:
         while( !glfwWindowShouldClose( m_Window ) )
         {
             glfwPollEvents();
+            DrawFrame();
         }
 
         return StatusCode::Success;
@@ -1384,6 +1385,36 @@ private:
             vkCreateSemaphore( m_Device, &semaphoreInfo, nullptr, &m_RenderFinishedSemaphore ) != VK_SUCCESS )
         {
             std::cerr << "Failed to create semaphores!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Draws a frame.
+    ////////////////////////////////////////////////////////////
+    StatusCode DrawFrame()
+    {
+        // Acquire an image from the swap chain.
+        uint32_t imageIndex = 0;
+        vkAcquireNextImageKHR( m_Device, m_SwapChain, UINT64_MAX, m_ImageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex );
+
+        // Submit the command buffer.
+        VkSubmitInfo         submitInfo = {};
+        VkPipelineStageFlags waitStages = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+        submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.waitSemaphoreCount   = 1;
+        submitInfo.pWaitSemaphores      = &m_ImageAvailableSemaphore;
+        submitInfo.pWaitDstStageMask    = &waitStages;
+        submitInfo.commandBufferCount   = 1;
+        submitInfo.pCommandBuffers      = &m_CommandBuffers[imageIndex];
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores    = &m_RenderFinishedSemaphore;
+
+        if( vkQueueSubmit( m_GraphicsQueue, 1, &submitInfo, VK_NULL_HANDLE ) != VK_SUCCESS )
+        {
+            std::cerr << "Failed to submit draw command buffer!" << std::endl;
             return StatusCode::Fail;
         }
 
