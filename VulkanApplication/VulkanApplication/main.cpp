@@ -1436,6 +1436,18 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode RecreateSwapChain()
     {
+        int32_t width  = 0;
+        int32_t height = 0;
+
+        glfwGetFramebufferSize( m_Window, &width, &height );
+
+        while( width == 0 || height == 0 )
+        {
+            // Pause until the windows is minimized.
+            glfwGetFramebufferSize( m_Window, &width, &height );
+            glfwWaitEvents();
+        }
+
         if( vkDeviceWaitIdle( m_Device ) != VK_SUCCESS )
         {
             std::cerr << "Failed to waiting for device!" << std::endl;
