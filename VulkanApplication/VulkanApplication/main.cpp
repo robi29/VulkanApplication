@@ -10,6 +10,8 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+constexpr uint32_t MaxFramesInFlight = 2;
+
 ////////////////////////////////////////////////////////////
 /// vkCreateDebugUtilsMessengerExtension.
 ////////////////////////////////////////////////////////////
@@ -122,8 +124,11 @@ private:
     std::vector<VkFramebuffer>   m_SwapChainFramebuffers;
     VkCommandPool                m_CommandPool;
     std::vector<VkCommandBuffer> m_CommandBuffers;
-    VkSemaphore                  m_ImageAvailableSemaphore;
-    VkSemaphore                  m_RenderFinishedSemaphore;
+    std::vector<VkSemaphore>     m_ImageAvailableSemaphores;
+    std::vector<VkSemaphore>     m_RenderFinishedSemaphores;
+    std::vector<VkFence>         m_InFlightFences;
+    std::vector<VkFence>         m_ImagesInFlight;
+    uint32_t                     m_CurrentFrame;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -176,8 +181,11 @@ public:
         , m_SwapChainFramebuffers{}
         , m_CommandPool( VK_NULL_HANDLE )
         , m_CommandBuffers{}
-        , m_ImageAvailableSemaphore( VK_NULL_HANDLE )
-        , m_RenderFinishedSemaphore( VK_NULL_HANDLE )
+        , m_ImageAvailableSemaphores{}
+        , m_RenderFinishedSemaphores{}
+        , m_InFlightFences{}
+        , m_ImagesInFlight{}
+        , m_CurrentFrame( 0 )
         , m_PhysicalDeviceExtensions{}
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
@@ -385,6 +393,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Semaphores creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateFences();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Fences creation failed!" << std::endl;
             return result;
         }
 
@@ -1414,18 +1429,48 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
-    /// Creates semaphores to signal events.
+    /// Creates semaphores to perform gpu-gpu synchronization.
     ////////////////////////////////////////////////////////////
     StatusCode CreateSemaphores()
     {
+        m_ImageAvailableSemaphores.resize( MaxFramesInFlight );
+        m_RenderFinishedSemaphores.resize( MaxFramesInFlight );
+
         VkSemaphoreCreateInfo semaphoreInfo = {};
         semaphoreInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-        if( vkCreateSemaphore( m_Device, &semaphoreInfo, nullptr, &m_ImageAvailableSemaphore ) != VK_SUCCESS ||
-            vkCreateSemaphore( m_Device, &semaphoreInfo, nullptr, &m_RenderFinishedSemaphore ) != VK_SUCCESS )
+        for( uint32_t i = 0; i < MaxFramesInFlight; ++i )
         {
-            std::cerr << "Failed to create semaphores!" << std::endl;
-            return StatusCode::Fail;
+            if( vkCreateSemaphore( m_Device, &semaphoreInfo, nullptr, &m_ImageAvailableSemaphores[i] ) != VK_SUCCESS ||
+                vkCreateSemaphore( m_Device, &semaphoreInfo, nullptr, &m_RenderFinishedSemaphores[i] ) != VK_SUCCESS )
+            {
+                std::cerr << "Failed to create semaphores!" << std::endl;
+                return StatusCode::Fail;
+            }
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Creates fences to perform cpu-gpu synchronization.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateFences()
+    {
+        m_InFlightFences.resize( MaxFramesInFlight );
+        m_ImagesInFlight.resize( m_SwapChainImages.size(), VK_NULL_HANDLE );
+
+        VkFenceCreateInfo fenceInfo = {};
+        fenceInfo.sType             = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fenceInfo.flags             = VK_FENCE_CREATE_SIGNALED_BIT;
+
+        for( uint32_t i = 0; i < MaxFramesInFlight; ++i )
+        {
+            if( vkCreateFence( m_Device, &fenceInfo, nullptr, &m_InFlightFences[i] ) != VK_SUCCESS )
+            {
+                std::cerr << "Failed to create fences!" << std::endl;
+                return StatusCode::Fail;
+            }
         }
 
         return StatusCode::Success;
@@ -1436,23 +1481,38 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode DrawFrame()
     {
+        // Wait for fences.
+        vkWaitForFences( m_Device, 1, &m_InFlightFences[m_CurrentFrame], VK_TRUE, UINT64_MAX );
+
         // Acquire an image from the swap chain.
         uint32_t imageIndex = 0;
-        vkAcquireNextImageKHR( m_Device, m_SwapChain, UINT64_MAX, m_ImageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex );
+        vkAcquireNextImageKHR( m_Device, m_SwapChain, UINT64_MAX, m_ImageAvailableSemaphores[m_CurrentFrame], VK_NULL_HANDLE, &imageIndex );
+
+        // Check if a previous frame is using this image (i.e. there is its fence to wait on).
+        if( m_ImagesInFlight[imageIndex] != VK_NULL_HANDLE )
+        {
+            vkWaitForFences( m_Device, 1, &m_ImagesInFlight[imageIndex], VK_TRUE, UINT64_MAX );
+        }
+
+        // Mark the image as now being in use by this frame
+        m_ImagesInFlight[imageIndex] = m_InFlightFences[m_CurrentFrame];
 
         // Submit the command buffer.
         VkSubmitInfo         submitInfo = {};
         VkPipelineStageFlags waitStages = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
         submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.waitSemaphoreCount   = 1;
-        submitInfo.pWaitSemaphores      = &m_ImageAvailableSemaphore;
+        submitInfo.pWaitSemaphores      = &m_ImageAvailableSemaphores[m_CurrentFrame];
         submitInfo.pWaitDstStageMask    = &waitStages;
         submitInfo.commandBufferCount   = 1;
         submitInfo.pCommandBuffers      = &m_CommandBuffers[imageIndex];
         submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores    = &m_RenderFinishedSemaphore;
+        submitInfo.pSignalSemaphores    = &m_RenderFinishedSemaphores[m_CurrentFrame];
 
-        if( vkQueueSubmit( m_GraphicsQueue, 1, &submitInfo, VK_NULL_HANDLE ) != VK_SUCCESS )
+        // Reset fences before using them.
+        vkResetFences( m_Device, 1, &m_InFlightFences[m_CurrentFrame] );
+
+        if( vkQueueSubmit( m_GraphicsQueue, 1, &submitInfo, m_InFlightFences[m_CurrentFrame] ) != VK_SUCCESS )
         {
             std::cerr << "Failed to submit draw command buffer!" << std::endl;
             return StatusCode::Fail;
@@ -1462,7 +1522,7 @@ private:
         VkPresentInfoKHR presentInfo   = {};
         presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         presentInfo.waitSemaphoreCount = 1;
-        presentInfo.pWaitSemaphores    = &m_RenderFinishedSemaphore;
+        presentInfo.pWaitSemaphores    = &m_RenderFinishedSemaphores[m_CurrentFrame];
         presentInfo.swapchainCount     = 1;
         presentInfo.pSwapchains        = &m_SwapChain;
         presentInfo.pImageIndices      = &imageIndex;
@@ -1474,11 +1534,7 @@ private:
             return StatusCode::Fail;
         }
 
-        if( vkQueueWaitIdle( m_PresentQueue ) != VK_SUCCESS )
-        {
-            std::cerr << "Failed to waiting for present queue!" << std::endl;
-            return StatusCode::Fail;
-        }
+        m_CurrentFrame = ( m_CurrentFrame + 1 ) % MaxFramesInFlight;
 
         return StatusCode::Success;
     }
@@ -1522,8 +1578,16 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CleanupVulkan()
     {
-        vkDestroySemaphore( m_Device, m_RenderFinishedSemaphore, nullptr );
-        vkDestroySemaphore( m_Device, m_ImageAvailableSemaphore, nullptr );
+        for( uint32_t i = 0; i < MaxFramesInFlight; ++i )
+        {
+            vkDestroyFence( m_Device, m_InFlightFences[i], nullptr );
+        }
+
+        for( uint32_t i = 0; i < MaxFramesInFlight; ++i )
+        {
+            vkDestroySemaphore( m_Device, m_RenderFinishedSemaphores[i], nullptr );
+            vkDestroySemaphore( m_Device, m_ImageAvailableSemaphores[i], nullptr );
+        }
 
         vkDestroyCommandPool( m_Device, m_CommandPool, nullptr );
 
