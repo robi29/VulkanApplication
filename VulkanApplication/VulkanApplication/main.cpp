@@ -288,7 +288,7 @@ private:
 
         // Set a callback for window resizing.
         glfwSetWindowUserPointer( m_Window, this );
-        glfwSetFramebufferSizeCallback( m_Window, FrameBufferResizeCallback );
+        glfwSetFramebufferSizeCallback( m_Window, static_cast<GLFWframebuffersizefun>( FrameBufferResizeCallback ) );
 
         return StatusCode::Success;
     }
@@ -1506,6 +1506,8 @@ private:
             std::cerr << "Command buffers recording failed!" << std::endl;
             return result;
         }
+
+        return StatusCode::Success;
     }
 
     ////////////////////////////////////////////////////////////
@@ -1544,9 +1546,9 @@ private:
         fenceInfo.sType             = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
         fenceInfo.flags             = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        for( uint32_t i = 0; i < MaxFramesInFlight; ++i )
+        for( auto& inFlightFence : m_InFlightFences )
         {
-            if( vkCreateFence( m_Device, &fenceInfo, nullptr, &m_InFlightFences[i] ) != VK_SUCCESS )
+            if( vkCreateFence( m_Device, &fenceInfo, nullptr, &inFlightFence ) != VK_SUCCESS )
             {
                 std::cerr << "Failed to create fences!" << std::endl;
                 return StatusCode::Fail;
@@ -1653,6 +1655,8 @@ private:
         createInfo.messageType     = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
         createInfo.pfnUserCallback = DebugCallback;
         createInfo.pUserData       = nullptr; // Optional.
+#else
+        (void) createInfo;
 #endif
     }
 
@@ -1715,15 +1719,19 @@ private:
     {
         CleanupSwapChain();
 
-        for( uint32_t i = 0; i < MaxFramesInFlight; ++i )
+        for( auto& inFlightFence : m_InFlightFences )
         {
-            vkDestroyFence( m_Device, m_InFlightFences[i], nullptr );
+            vkDestroyFence( m_Device, inFlightFence, nullptr );
         }
 
-        for( uint32_t i = 0; i < MaxFramesInFlight; ++i )
+        for( auto& renderFinishedSemaphore : m_RenderFinishedSemaphores )
         {
-            vkDestroySemaphore( m_Device, m_RenderFinishedSemaphores[i], nullptr );
-            vkDestroySemaphore( m_Device, m_ImageAvailableSemaphores[i], nullptr );
+            vkDestroySemaphore( m_Device, renderFinishedSemaphore, nullptr );
+        }
+
+        for( auto& imageAvailableSemaphore : m_ImageAvailableSemaphores )
+        {
+            vkDestroySemaphore( m_Device, imageAvailableSemaphore, nullptr );
         }
 
         vkDestroyCommandPool( m_Device, m_CommandPool, nullptr );
@@ -1792,7 +1800,12 @@ private:
                       << std::endl
                       << std::endl;
         }
+#else
+        (void) messageSeverity;
+        (void) callbackData;
 #endif
+        (void) messageType;
+        (void) userData;
 
         return VK_FALSE;
     }
@@ -1802,11 +1815,14 @@ private:
     ////////////////////////////////////////////////////////////
     static void __stdcall FrameBufferResizeCallback(
         GLFWwindow* window,
-        int         width,
-        int         height )
+        int32_t     width,
+        int32_t     height )
     {
         auto app                    = reinterpret_cast<Application*>( glfwGetWindowUserPointer( window ) );
         app->m_IsFrameBufferResized = true;
+
+        (void) width;
+        (void) height;
     }
 };
 
