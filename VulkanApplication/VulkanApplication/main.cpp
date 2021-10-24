@@ -853,6 +853,27 @@ private:
             createInfo.pQueueFamilyIndices   = nullptr; // Optional.
         }
 
+        // Check supported formats.
+        VkImageFormatProperties imageFormatProperties = {};
+        if( vkGetPhysicalDeviceImageFormatProperties(
+                m_PhysicalDevice,
+                createInfo.imageFormat,
+                VK_IMAGE_TYPE_2D,
+                VK_IMAGE_TILING_OPTIMAL,
+                createInfo.imageUsage,
+                0,
+                &imageFormatProperties ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot get physical device image format properties!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        if( imageFormatProperties.maxExtent.height < extent.height || imageFormatProperties.maxExtent.width < extent.width )
+        {
+            std::cerr << "Image extent is bigger than max extent!" << std::endl;
+            return StatusCode::Fail;
+        }
+
         createInfo.preTransform   = details.m_Capabilities.currentTransform;
         createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         createInfo.presentMode    = presentMode;
@@ -1583,7 +1604,10 @@ private:
 #ifdef _DEBUG
         if( messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT )
         {
-            std::cerr << "Validation layer: " << callbackData->pMessage << std::endl;
+            std::cerr << "[VULKAN] "
+                      << callbackData->pMessage
+                      << std::endl
+                      << std::endl;
         }
 #endif
 
