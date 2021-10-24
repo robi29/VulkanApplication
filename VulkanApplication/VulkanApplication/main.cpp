@@ -129,6 +129,7 @@ private:
     std::vector<VkFence>         m_InFlightFences;
     std::vector<VkFence>         m_ImagesInFlight;
     uint32_t                     m_CurrentFrame;
+    bool                         m_IsFrameBufferResized;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -186,6 +187,7 @@ public:
         , m_InFlightFences{}
         , m_ImagesInFlight{}
         , m_CurrentFrame( 0 )
+        , m_IsFrameBufferResized( false )
         , m_PhysicalDeviceExtensions{}
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
@@ -276,9 +278,6 @@ private:
         // Tell explicitly not to create an OpenGL context.
         glfwWindowHint( GLFW_CLIENT_API, GLFW_NO_API );
 
-        // Disable window resizing.
-        glfwWindowHint( GLFW_RESIZABLE, GLFW_FALSE );
-
         // Initialize the window.
         m_Window = glfwCreateWindow( m_Width, m_Height, m_WindowName.c_str(), nullptr, nullptr );
         if( m_Window == nullptr )
@@ -286,6 +285,10 @@ private:
             std::cerr << "Cannot create window!" << std::endl;
             return StatusCode::Fail;
         }
+
+        // Set a callback for window resizing.
+        glfwSetWindowUserPointer( m_Window, this );
+        glfwSetFramebufferSizeCallback( m_Window, FrameBufferResizeCallback );
 
         return StatusCode::Success;
     }
@@ -1429,6 +1432,71 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Recreates swap chain.
+    ////////////////////////////////////////////////////////////
+    StatusCode RecreateSwapChain()
+    {
+        if( vkDeviceWaitIdle( m_Device ) != VK_SUCCESS )
+        {
+            std::cerr << "Failed to waiting for device!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        CleanupSwapChain();
+
+        StatusCode result = StatusCode::Success;
+
+        result = CreateSwapChain();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Swap chain creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateImageViews();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Image views creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateRenderPass();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Render pass creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateGraphicsPipeline();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Graphics pipeline creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateFramebuffers();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Frame buffers creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateCommandBuffers();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Command buffers creation failed!" << std::endl;
+            return result;
+        }
+
+        result = RecordCommandBuffers();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Command buffers recording failed!" << std::endl;
+            return result;
+        }
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Creates semaphores to perform gpu-gpu synchronization.
     ////////////////////////////////////////////////////////////
     StatusCode CreateSemaphores()
@@ -1481,12 +1549,26 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode DrawFrame()
     {
+        VkResult result = VK_SUCCESS;
+
         // Wait for fences.
         vkWaitForFences( m_Device, 1, &m_InFlightFences[m_CurrentFrame], VK_TRUE, UINT64_MAX );
 
         // Acquire an image from the swap chain.
         uint32_t imageIndex = 0;
-        vkAcquireNextImageKHR( m_Device, m_SwapChain, UINT64_MAX, m_ImageAvailableSemaphores[m_CurrentFrame], VK_NULL_HANDLE, &imageIndex );
+        result              = vkAcquireNextImageKHR( m_Device, m_SwapChain, UINT64_MAX, m_ImageAvailableSemaphores[m_CurrentFrame], VK_NULL_HANDLE, &imageIndex );
+
+        // Check swap chain status and recreate it if needed.
+        if( result == VK_ERROR_OUT_OF_DATE_KHR )
+        {
+            RecreateSwapChain();
+            return StatusCode::Success;
+        }
+        else if( result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR ) // Suboptimal swap chain is ok.
+        {
+            std::cerr << "Failed to acquire swap chain image!" << std::endl;
+            return StatusCode::Fail;
+        }
 
         // Check if a previous frame is using this image (i.e. there is its fence to wait on).
         if( m_ImagesInFlight[imageIndex] != VK_NULL_HANDLE )
@@ -1528,9 +1610,17 @@ private:
         presentInfo.pImageIndices      = &imageIndex;
         presentInfo.pResults           = nullptr; // Optional.
 
-        if( vkQueuePresentKHR( m_PresentQueue, &presentInfo ) != VK_SUCCESS )
+        result = vkQueuePresentKHR( m_PresentQueue, &presentInfo );
+
+        // Check swap chain status and recreate it if needed.
+        if( result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_IsFrameBufferResized )
         {
-            std::cerr << "Failed to present swap chain!" << std::endl;
+            m_IsFrameBufferResized = false;
+            RecreateSwapChain();
+        }
+        else if( result != VK_SUCCESS )
+        {
+            std::cerr << "Failed to present swap chain image!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -1574,10 +1664,45 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Cleanups swap chain.
+    ////////////////////////////////////////////////////////////
+    void CleanupSwapChain()
+    {
+        // Destroy frame buffers.
+        for( auto& framebuffer : m_SwapChainFramebuffers )
+        {
+            vkDestroyFramebuffer( m_Device, framebuffer, nullptr );
+        }
+
+        // Free command buffers.
+        vkFreeCommandBuffers( m_Device, m_CommandPool, static_cast<uint32_t>( m_CommandBuffers.size() ), m_CommandBuffers.data() );
+
+        // Destroy graphics pipeline.
+        vkDestroyPipeline( m_Device, m_GraphicsPipeline, nullptr );
+
+        // Destroy graphics pipeline layout.
+        vkDestroyPipelineLayout( m_Device, m_GraphicsPipelineLayout, nullptr );
+
+        // Destroy render pass.
+        vkDestroyRenderPass( m_Device, m_RenderPass, nullptr );
+
+        // Destroy image views.
+        for( auto& imageView : m_SwapChainImageViews )
+        {
+            vkDestroyImageView( m_Device, imageView, nullptr );
+        }
+
+        // Destroy swap chain.
+        vkDestroySwapchainKHR( m_Device, m_SwapChain, nullptr );
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Cleanups Vulkan api.
     ////////////////////////////////////////////////////////////
     StatusCode CleanupVulkan()
     {
+        CleanupSwapChain();
+
         for( uint32_t i = 0; i < MaxFramesInFlight; ++i )
         {
             vkDestroyFence( m_Device, m_InFlightFences[i], nullptr );
@@ -1590,24 +1715,6 @@ private:
         }
 
         vkDestroyCommandPool( m_Device, m_CommandPool, nullptr );
-
-        for( auto& framebuffer : m_SwapChainFramebuffers )
-        {
-            vkDestroyFramebuffer( m_Device, framebuffer, nullptr );
-        }
-
-        vkDestroyPipeline( m_Device, m_GraphicsPipeline, nullptr );
-
-        vkDestroyPipelineLayout( m_Device, m_GraphicsPipelineLayout, nullptr );
-
-        vkDestroyRenderPass( m_Device, m_RenderPass, nullptr );
-
-        for( auto& imageView : m_SwapChainImageViews )
-        {
-            vkDestroyImageView( m_Device, imageView, nullptr );
-        }
-
-        vkDestroySwapchainKHR( m_Device, m_SwapChain, nullptr );
 
         vkDestroyDevice( m_Device, nullptr );
 
@@ -1676,6 +1783,18 @@ private:
 #endif
 
         return VK_FALSE;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Frame buffer resize callback.
+    ////////////////////////////////////////////////////////////
+    static void __stdcall FrameBufferResizeCallback(
+        GLFWwindow* window,
+        int         width,
+        int         height )
+    {
+        auto app                    = reinterpret_cast<Application*>( glfwGetWindowUserPointer( window ) );
+        app->m_IsFrameBufferResized = true;
     }
 };
 
