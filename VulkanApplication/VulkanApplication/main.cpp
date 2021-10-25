@@ -6,11 +6,68 @@
 #include <fstream>
 #include <set>
 #include <vector>
+#include <array>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include <glm/glm.hpp>
+
 constexpr uint32_t MaxFramesInFlight = 2;
+
+////////////////////////////////////////////////////////////
+/// Vertex structure.
+////////////////////////////////////////////////////////////
+struct Vertex
+{
+    glm::vec2 position;
+    glm::vec3 color;
+
+    ////////////////////////////////////////////////////////////
+    /// GetBindingDescription.
+    ////////////////////////////////////////////////////////////
+    static auto GetBindingDescription()
+    {
+        VkVertexInputBindingDescription bindingDescription = {};
+
+        bindingDescription.binding   = 0; // Index used in attribute descriptions.
+        bindingDescription.stride    = sizeof( Vertex );
+        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        return bindingDescription;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// GetAttributeDescriptions.
+    ////////////////////////////////////////////////////////////
+    static auto GetAttributeDescriptions()
+    {
+        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = {};
+
+        // Position.
+        attributeDescriptions[0].binding  = 0;
+        attributeDescriptions[0].location = 0;
+        attributeDescriptions[0].format   = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[0].offset   = offsetof( Vertex, position );
+
+        // Color.
+        attributeDescriptions[1].binding  = 0;
+        attributeDescriptions[1].location = 1;
+        attributeDescriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
+        attributeDescriptions[1].offset   = offsetof( Vertex, color );
+
+        return attributeDescriptions;
+    }
+};
+
+////////////////////////////////////////////////////////////
+/// Vertices.
+////////////////////////////////////////////////////////////
+const std::vector<Vertex> Vertices = {
+    { { 0.0f, -0.5f }, { 1.0f, 0.0f, 0.0f } },
+    { { 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f } },
+    { { -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } }
+};
 
 ////////////////////////////////////////////////////////////
 /// vkCreateDebugUtilsMessengerExtension.
@@ -1141,12 +1198,15 @@ private:
         };
 
         // Create vertex input state.
+        const auto bindingDescription    = Vertex::GetBindingDescription();
+        const auto attributeDescriptions = Vertex::GetAttributeDescriptions();
+
         VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
         vertexInputInfo.sType                                = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInputInfo.vertexBindingDescriptionCount        = 0;
-        vertexInputInfo.pVertexBindingDescriptions           = nullptr; // Optional.
-        vertexInputInfo.vertexAttributeDescriptionCount      = 0;
-        vertexInputInfo.pVertexAttributeDescriptions         = nullptr; // Optional.
+        vertexInputInfo.vertexBindingDescriptionCount        = 1;
+        vertexInputInfo.pVertexBindingDescriptions           = &bindingDescription; // Optional.
+        vertexInputInfo.vertexAttributeDescriptionCount      = static_cast<uint32_t>( attributeDescriptions.size() );
+        vertexInputInfo.pVertexAttributeDescriptions         = attributeDescriptions.data(); // Optional.
 
         // Create input assembly state.
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
