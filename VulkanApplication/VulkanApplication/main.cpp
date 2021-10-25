@@ -180,6 +180,8 @@ private:
     VkPipeline                   m_GraphicsPipeline;
     std::vector<VkFramebuffer>   m_SwapChainFramebuffers;
     VkCommandPool                m_CommandPool;
+    VkBuffer                     m_VertexBuffer;
+    VkDeviceMemory               m_VertexBufferGpuMemory;
     std::vector<VkCommandBuffer> m_CommandBuffers;
     std::vector<VkSemaphore>     m_ImageAvailableSemaphores;
     std::vector<VkSemaphore>     m_RenderFinishedSemaphores;
@@ -238,6 +240,8 @@ public:
         , m_GraphicsPipeline( VK_NULL_HANDLE )
         , m_SwapChainFramebuffers{}
         , m_CommandPool( VK_NULL_HANDLE )
+        , m_VertexBuffer( VK_NULL_HANDLE )
+        , m_VertexBufferGpuMemory( VK_NULL_HANDLE )
         , m_CommandBuffers{}
         , m_ImageAvailableSemaphores{}
         , m_RenderFinishedSemaphores{}
@@ -432,6 +436,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Command pool creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateVertexBuffers();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Vertex buffers creation failed!" << std::endl;
             return result;
         }
 
@@ -1411,6 +1422,102 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates vertex buffers.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateVertexBuffers()
+    {
+        VkBufferCreateInfo bufferInfo = {};
+
+        bufferInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size        = sizeof( Vertices[0] ) * Vertices.size();
+        bufferInfo.usage       = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        if( vkCreateBuffer( m_Device, &bufferInfo, nullptr, &m_VertexBuffer ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create vertex buffer!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Get gpu memory requirements for the vertex buffer.
+        VkMemoryRequirements gpuMemoryRequirements = {};
+
+        vkGetBufferMemoryRequirements( m_Device, m_VertexBuffer, &gpuMemoryRequirements );
+
+        // Allocate gpu memory for the vertex buffer.
+        VkMemoryAllocateInfo allocationInfo = {};
+
+        allocationInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocationInfo.allocationSize  = gpuMemoryRequirements.size;
+        allocationInfo.memoryTypeIndex = FindGpuMemoryType(
+            gpuMemoryRequirements.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
+
+        if( allocationInfo.memoryTypeIndex == UINT32_MAX )
+        {
+            std::cerr << "Cannot find gpu memory type!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        if( vkAllocateMemory( m_Device, &allocationInfo, nullptr, &m_VertexBufferGpuMemory ) != VK_SUCCESS )
+        {
+            std::cerr << "Failed to allocate vertex buffer memory!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Bind allocated gpu memory with the vertex buffer.
+        const VkDeviceSize gpuMemoryOffset = 0;
+
+        // if( gpuMemoryOffset != 0 )
+        // {
+        //     if( gpuMemoryOffset % gpuMemoryRequirements.alignment != 0 )
+        //     {
+        //         std::cerr << "Gpu memory offset is not aligned!" << std::endl;
+        //         return StatusCode::Fail;
+        //     }
+        // }
+
+        if( vkBindBufferMemory( m_Device, m_VertexBuffer, m_VertexBufferGpuMemory, gpuMemoryOffset ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot bind buffer gpu memory!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Fill the vertex buffer.
+        void* data;
+
+        vkMapMemory( m_Device, m_VertexBufferGpuMemory, 0, bufferInfo.size, 0, &data );
+        memcpy_s( data, bufferInfo.size, Vertices.data(), bufferInfo.size );
+        vkUnmapMemory( m_Device, m_VertexBufferGpuMemory );
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Finds gpu memory type.
+    ////////////////////////////////////////////////////////////
+    uint32_t FindGpuMemoryType( const uint32_t typeFilter, const VkMemoryPropertyFlags properties )
+    {
+        VkPhysicalDeviceMemoryProperties gpuMemoryProperties = {};
+
+        // Get gpu memory properties.
+        vkGetPhysicalDeviceMemoryProperties( m_PhysicalDevice, &gpuMemoryProperties );
+
+        for( uint32_t i = 0; i < gpuMemoryProperties.memoryTypeCount; i++ )
+        {
+            if( ( typeFilter & ( 1 << i ) ) &&
+                ( gpuMemoryProperties.memoryTypes[i].propertyFlags & properties ) == properties )
+            {
+                return i;
+            }
+        }
+
+        std::cerr << "Failed to find suitable memory type!" << std::endl;
+
+        return UINT32_MAX;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Creates command buffers.
     ////////////////////////////////////////////////////////////
     StatusCode CreateCommandBuffers()
@@ -1474,8 +1581,13 @@ private:
             // Bind the graphics pipeline.
             vkCmdBindPipeline( m_CommandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline );
 
+            // Bind the vertex buffers.
+            const VkBuffer     vertexBuffers[] = { m_VertexBuffer };
+            const VkDeviceSize offsets[]       = { 0 };
+            vkCmdBindVertexBuffers( m_CommandBuffers[i], 0, 1, vertexBuffers, offsets );
+
             // Draw.
-            vkCmdDraw( m_CommandBuffers[i], 3, 1, 0, 0 );
+            vkCmdDraw( m_CommandBuffers[i], static_cast<uint32_t>( Vertices.size() ), 1, 0, 0 );
 
             // End the render pass.
             vkCmdEndRenderPass( m_CommandBuffers[i] );
@@ -1778,6 +1890,12 @@ private:
     StatusCode CleanupVulkan()
     {
         CleanupSwapChain();
+
+        // Destroy vertex buffer.
+        vkDestroyBuffer( m_Device, m_VertexBuffer, nullptr );
+
+        // Free gpu memory associated with destroyed vertex buffer.
+        vkFreeMemory( m_Device, m_VertexBufferGpuMemory, nullptr );
 
         for( auto& inFlightFence : m_InFlightFences )
         {
