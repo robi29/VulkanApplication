@@ -64,9 +64,22 @@ struct Vertex
 /// Vertices.
 ////////////////////////////////////////////////////////////
 const std::vector<Vertex> Vertices = {
-    { { 0.0f, -0.5f }, { 1.0f, 0.0f, 0.0f } },
-    { { 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f } },
-    { { -0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } }
+    { { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f } },
+    { { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f } },
+    { { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } },
+    { { -0.5f, 0.5f }, { 0.3f, 0.0f, 1.0f } }
+};
+
+////////////////////////////////////////////////////////////
+/// Indices.
+////////////////////////////////////////////////////////////
+const std::vector<uint16_t> Indices = {
+    0,
+    1,
+    2,
+    2,
+    3,
+    0
 };
 
 ////////////////////////////////////////////////////////////
@@ -179,6 +192,8 @@ private:
     VkCommandPool                m_CommandPoolCopy;
     VkBuffer                     m_VertexBuffer;
     VkDeviceMemory               m_VertexBufferGpuMemory;
+    VkBuffer                     m_IndexBuffer;
+    VkDeviceMemory               m_IndexBufferGpuMemory;
     std::vector<VkCommandBuffer> m_CommandBuffers;
     std::vector<VkSemaphore>     m_ImageAvailableSemaphores;
     std::vector<VkSemaphore>     m_RenderFinishedSemaphores;
@@ -243,6 +258,8 @@ public:
         , m_CommandPoolCopy( VK_NULL_HANDLE )
         , m_VertexBuffer( VK_NULL_HANDLE )
         , m_VertexBufferGpuMemory( VK_NULL_HANDLE )
+        , m_IndexBuffer( VK_NULL_HANDLE )
+        , m_IndexBufferGpuMemory( VK_NULL_HANDLE )
         , m_CommandBuffers{}
         , m_ImageAvailableSemaphores{}
         , m_RenderFinishedSemaphores{}
@@ -445,6 +462,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Vertex buffers creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateIndexBuffer();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Index buffers creation failed!" << std::endl;
             return result;
         }
 
@@ -1669,6 +1693,52 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates index buffers.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateIndexBuffer()
+    {
+        StatusCode         result                 = StatusCode::Success;
+        VkBuffer           stagingBuffer          = VK_NULL_HANDLE;
+        VkDeviceMemory     stagingBufferGpuMemory = VK_NULL_HANDLE;
+        const VkDeviceSize bufferSize             = sizeof( Indices[0] ) * Indices.size();
+
+        result = CreateBuffer(
+            bufferSize,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stagingBuffer,
+            stagingBufferGpuMemory );
+
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Cannot create staging buffer for index buffer!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Fill the index buffer.
+        void* data;
+
+        vkMapMemory( m_Device, stagingBufferGpuMemory, 0, bufferSize, 0, &data );
+        memcpy_s( data, bufferSize, Indices.data(), bufferSize );
+        vkUnmapMemory( m_Device, stagingBufferGpuMemory );
+
+        result = CreateBuffer(
+            bufferSize,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            m_IndexBuffer,
+            m_IndexBufferGpuMemory );
+
+        // Copy data from the staging buffer to index buffer.
+        CopyBuffer( stagingBuffer, m_IndexBuffer, bufferSize );
+
+        vkDestroyBuffer( m_Device, stagingBuffer, nullptr );
+        vkFreeMemory( m_Device, stagingBufferGpuMemory, nullptr );
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Finds gpu memory type.
     ////////////////////////////////////////////////////////////
     uint32_t FindGpuMemoryType( const uint32_t typeFilter, const VkMemoryPropertyFlags properties )
@@ -1761,8 +1831,12 @@ private:
             const VkDeviceSize offsets[]       = { 0 };
             vkCmdBindVertexBuffers( m_CommandBuffers[i], 0, 1, vertexBuffers, offsets );
 
+            // Bind the index buffer.
+            vkCmdBindIndexBuffer( m_CommandBuffers[i], m_IndexBuffer, 0, VK_INDEX_TYPE_UINT16 );
+
             // Draw.
-            vkCmdDraw( m_CommandBuffers[i], static_cast<uint32_t>( Vertices.size() ), 1, 0, 0 );
+            //vkCmdDraw( m_CommandBuffers[i], static_cast<uint32_t>( Vertices.size() ), 1, 0, 0 );
+            vkCmdDrawIndexed( m_CommandBuffers[i], static_cast<uint32_t>( Indices.size() ), 1, 0, 0, 0 );
 
             // End the render pass.
             vkCmdEndRenderPass( m_CommandBuffers[i] );
@@ -2065,6 +2139,12 @@ private:
     StatusCode CleanupVulkan()
     {
         CleanupSwapChain();
+
+        // Destroy index buffer.
+        vkDestroyBuffer( m_Device, m_IndexBuffer, nullptr );
+
+        // Free gpu memory associated with destroyed index buffer.
+        vkFreeMemory( m_Device, m_IndexBufferGpuMemory, nullptr );
 
         // Destroy vertex buffer.
         vkDestroyBuffer( m_Device, m_VertexBuffer, nullptr );
