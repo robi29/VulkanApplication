@@ -119,20 +119,14 @@ enum class StatusCode : uint32_t
 ////////////////////////////////////////////////////////////
 struct QueueFamilyIndices
 {
-    // Graphics queue family.
-    bool     m_HasGraphicsFamily;
+    bool m_HasGraphicsFamily;
+    bool m_HasComputeFamily;
+    bool m_HasCopyFamily;
+    bool m_HasPresentFamily;
+
     uint32_t m_GraphicsFamily;
-
-    // Compute queue family.
-    bool     m_HasComputeFamily;
     uint32_t m_ComputeFamily;
-
-    // Memory transfer queue family.
-    bool     m_HasMemoryTransferFamily;
-    uint32_t m_MemoryTransferFamily;
-
-    // Present queue family.
-    bool     m_HasPresentFamily;
+    uint32_t m_CopyFamily;
     uint32_t m_PresentFamily;
 };
 
@@ -169,6 +163,8 @@ private:
     VkPhysicalDeviceFeatures     m_PhysicalDeviceFeatures;
     VkDevice                     m_Device;
     VkQueue                      m_GraphicsQueue;
+    VkQueue                      m_ComputeQueue;
+    VkQueue                      m_CopyQueue;
     VkQueue                      m_PresentQueue;
     VkSwapchainKHR               m_SwapChain;
     std::vector<VkImage>         m_SwapChainImages;
@@ -180,6 +176,7 @@ private:
     VkPipeline                   m_GraphicsPipeline;
     std::vector<VkFramebuffer>   m_SwapChainFramebuffers;
     VkCommandPool                m_CommandPool;
+    VkCommandPool                m_CommandPoolCopy;
     VkBuffer                     m_VertexBuffer;
     VkDeviceMemory               m_VertexBufferGpuMemory;
     std::vector<VkCommandBuffer> m_CommandBuffers;
@@ -187,6 +184,7 @@ private:
     std::vector<VkSemaphore>     m_RenderFinishedSemaphores;
     std::vector<VkFence>         m_InFlightFences;
     std::vector<VkFence>         m_ImagesInFlight;
+    QueueFamilyIndices           m_QueueFamilyIndices;
     uint32_t                     m_CurrentFrame;
     bool                         m_IsFrameBufferResized;
 
@@ -229,6 +227,8 @@ public:
         , m_PhysicalDeviceFeatures{}
         , m_Device( VK_NULL_HANDLE )
         , m_GraphicsQueue( VK_NULL_HANDLE )
+        , m_ComputeQueue( VK_NULL_HANDLE )
+        , m_CopyQueue( VK_NULL_HANDLE )
         , m_PresentQueue( VK_NULL_HANDLE )
         , m_SwapChain( VK_NULL_HANDLE )
         , m_SwapChainImages{}
@@ -240,6 +240,7 @@ public:
         , m_GraphicsPipeline( VK_NULL_HANDLE )
         , m_SwapChainFramebuffers{}
         , m_CommandPool( VK_NULL_HANDLE )
+        , m_CommandPoolCopy( VK_NULL_HANDLE )
         , m_VertexBuffer( VK_NULL_HANDLE )
         , m_VertexBufferGpuMemory( VK_NULL_HANDLE )
         , m_CommandBuffers{}
@@ -247,6 +248,7 @@ public:
         , m_RenderFinishedSemaphores{}
         , m_InFlightFences{}
         , m_ImagesInFlight{}
+        , m_QueueFamilyIndices{}
         , m_CurrentFrame( 0 )
         , m_IsFrameBufferResized( false )
         , m_PhysicalDeviceExtensions{}
@@ -432,7 +434,7 @@ private:
             return result;
         }
 
-        result = CreateCommandPool();
+        result = CreateCommandPools();
         if( result != StatusCode::Success )
         {
             std::cerr << "Command pool creation failed!" << std::endl;
@@ -768,14 +770,19 @@ private:
     StatusCode CreateLogicalDevice()
     {
         // Get graphics queue family index.
-        const QueueFamilyIndices indices = FindQueueFamilies( m_PhysicalDevice );
+        m_QueueFamilyIndices = FindQueueFamilies( m_PhysicalDevice );
 
         // Set the queue priority.
         const float queuePriority = 1.0f;
 
         // Graphics and present queue create information.
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-        std::set<uint32_t>                   uniqueQueueFamilies = { indices.m_GraphicsFamily, indices.m_PresentFamily };
+        std::set<uint32_t>                   uniqueQueueFamilies = {
+            m_QueueFamilyIndices.m_GraphicsFamily,
+            m_QueueFamilyIndices.m_ComputeFamily,
+            m_QueueFamilyIndices.m_PresentFamily,
+            m_QueueFamilyIndices.m_CopyFamily
+        };
 
         // Populate queue create information.
         for( const uint32_t queueFamily : uniqueQueueFamilies )
@@ -811,20 +818,56 @@ private:
             return StatusCode::Fail;
         }
 
-        // Get graphics queue.
-        vkGetDeviceQueue( m_Device, indices.m_GraphicsFamily, 0, &m_GraphicsQueue );
-        if( m_GraphicsQueue == nullptr )
+        // Get graphics/compute queue.
+        if( m_QueueFamilyIndices.m_GraphicsFamily == m_QueueFamilyIndices.m_ComputeFamily )
         {
-            std::cerr << "Cannot obtain graphics queue!" << std::endl;
+            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_GraphicsFamily, 0, &m_GraphicsQueue );
+            if( m_GraphicsQueue == nullptr )
+            {
+                std::cerr << "Cannot obtain graphics queue!" << std::endl;
+                return StatusCode::Fail;
+            }
+
+            m_ComputeQueue = m_GraphicsQueue;
+        }
+        else
+        {
+            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_GraphicsFamily, 0, &m_GraphicsQueue );
+            if( m_GraphicsQueue == nullptr )
+            {
+                std::cerr << "Cannot obtain graphics queue!" << std::endl;
+                return StatusCode::Fail;
+            }
+
+            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_ComputeFamily, 0, &m_ComputeQueue );
+            if( m_ComputeQueue == nullptr )
+            {
+                std::cerr << "Cannot obtain compute queue!" << std::endl;
+                return StatusCode::Fail;
+            }
+        }
+
+        // Get copy family.
+        vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_CopyFamily, 0, &m_CopyQueue );
+        if( m_CopyQueue == nullptr )
+        {
+            std::cerr << "Cannot obtain copy queue!" << std::endl;
             return StatusCode::Fail;
         }
 
         // Get present family.
-        vkGetDeviceQueue( m_Device, indices.m_PresentFamily, 0, &m_PresentQueue );
-        if( m_PresentQueue == nullptr )
+        if( m_QueueFamilyIndices.m_GraphicsFamily != m_QueueFamilyIndices.m_PresentFamily )
         {
-            std::cerr << "Cannot obtain present queue!" << std::endl;
-            return StatusCode::Fail;
+            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_PresentFamily, 0, &m_PresentQueue );
+            if( m_PresentQueue == nullptr )
+            {
+                std::cerr << "Cannot obtain present queue!" << std::endl;
+                return StatusCode::Fail;
+            }
+        }
+        else
+        {
+            m_PresentQueue = m_GraphicsQueue;
         }
 
         return StatusCode::Success;
@@ -849,24 +892,29 @@ private:
         for( const auto& queueFamily : queueFamilies )
         {
             // Graphics queue family.
-            if( queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT && !indices.m_HasGraphicsFamily )
+            if( queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT &&
+                !indices.m_HasGraphicsFamily )
             {
                 indices.m_GraphicsFamily    = index;
                 indices.m_HasGraphicsFamily = true;
             }
 
             // Compute queue family.
-            if( queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT && !indices.m_HasComputeFamily )
+            if( queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT &&
+                !indices.m_HasComputeFamily )
             {
                 indices.m_ComputeFamily    = index;
                 indices.m_HasComputeFamily = true;
             }
 
-            // Memory transfer queue family.
-            if( queueFamily.queueFlags & VK_QUEUE_TRANSFER_BIT && !indices.m_HasMemoryTransferFamily )
+            // Memory transfer queue family (explicitly).
+            if( queueFamily.queueFlags & VK_QUEUE_TRANSFER_BIT &&
+                !( queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT ) &&
+                !( queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT ) &&
+                !indices.m_HasCopyFamily )
             {
-                indices.m_MemoryTransferFamily    = index;
-                indices.m_HasMemoryTransferFamily = true;
+                indices.m_CopyFamily    = index;
+                indices.m_HasCopyFamily = true;
             }
 
             // Present queue family.
@@ -921,15 +969,39 @@ private:
         createInfo.imageArrayLayers         = 1; // More than one for stereoscopic 3d applications.
         createInfo.imageUsage               = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-        QueueFamilyIndices indices              = FindQueueFamilies( m_PhysicalDevice );
-        uint32_t           queueFamilyIndices[] = { indices.m_GraphicsFamily, indices.m_PresentFamily };
+        std::vector<uint32_t> queueFamilyIndices = {};
 
-        if( indices.m_GraphicsFamily != indices.m_PresentFamily )
+        if( m_QueueFamilyIndices.m_PresentFamily != m_QueueFamilyIndices.m_GraphicsFamily )
+        {
+            // Add both queues if they are in different queue families.
+            queueFamilyIndices.emplace_back( m_QueueFamilyIndices.m_GraphicsFamily );
+            queueFamilyIndices.emplace_back( m_QueueFamilyIndices.m_PresentFamily );
+        }
+        else
+        {
+            // Add one queue if graphics and present queues are in the same queue family.
+            queueFamilyIndices.emplace_back( m_QueueFamilyIndices.m_GraphicsFamily );
+        }
+
+        if( m_QueueFamilyIndices.m_ComputeFamily != m_QueueFamilyIndices.m_GraphicsFamily )
+        {
+            // Add compute queue family if it is in different queue family then graphics one.
+            queueFamilyIndices.emplace_back( m_QueueFamilyIndices.m_ComputeFamily );
+        }
+
+        if( m_QueueFamilyIndices.m_CopyFamily != m_QueueFamilyIndices.m_GraphicsFamily ||
+            m_QueueFamilyIndices.m_CopyFamily != m_QueueFamilyIndices.m_ComputeFamily )
+        {
+            // Add copy queue family if it is in different queue family then graphics or compute one.
+            queueFamilyIndices.emplace_back( m_QueueFamilyIndices.m_CopyFamily );
+        }
+
+        if( queueFamilyIndices.size() > 1 )
         {
             // Graphics and present queues are in different queue families.
             createInfo.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
-            createInfo.queueFamilyIndexCount = 2;
-            createInfo.pQueueFamilyIndices   = queueFamilyIndices;
+            createInfo.queueFamilyIndexCount = static_cast<uint32_t>( queueFamilyIndices.size() );
+            createInfo.pQueueFamilyIndices   = queueFamilyIndices.data();
         }
         else
         {
@@ -1401,18 +1473,26 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
-    /// Creates command pool.
+    /// Creates command pools.
     ////////////////////////////////////////////////////////////
-    StatusCode CreateCommandPool()
+    StatusCode CreateCommandPools()
     {
-        QueueFamilyIndices queueFamilyIndices = FindQueueFamilies( m_PhysicalDevice );
-
         VkCommandPoolCreateInfo poolInfo = {};
         poolInfo.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.queueFamilyIndex        = queueFamilyIndices.m_GraphicsFamily;
+        poolInfo.queueFamilyIndex        = m_QueueFamilyIndices.m_GraphicsFamily;
         poolInfo.flags                   = 0; // Optional.
 
+        // Graphics command pool.
         if( vkCreateCommandPool( m_Device, &poolInfo, nullptr, &m_CommandPool ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create command pool!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Copy command pool.
+        poolInfo.queueFamilyIndex = m_QueueFamilyIndices.m_CopyFamily;
+
+        if( vkCreateCommandPool( m_Device, &poolInfo, nullptr, &m_CommandPoolCopy ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create command pool!" << std::endl;
             return StatusCode::Fail;
@@ -1911,6 +1991,8 @@ private:
         {
             vkDestroySemaphore( m_Device, imageAvailableSemaphore, nullptr );
         }
+
+        vkDestroyCommandPool( m_Device, m_CommandPoolCopy, nullptr );
 
         vkDestroyCommandPool( m_Device, m_CommandPool, nullptr );
 
