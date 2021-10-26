@@ -441,7 +441,7 @@ private:
             return result;
         }
 
-        result = CreateVertexBuffers();
+        result = CreateVertexBuffer();
         if( result != StatusCode::Success )
         {
             std::cerr << "Vertex buffers creation failed!" << std::endl;
@@ -1491,6 +1491,7 @@ private:
 
         // Copy command pool.
         poolInfo.queueFamilyIndex = m_QueueFamilyIndices.m_CopyFamily;
+        poolInfo.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT; // Short-lived command buffers.
 
         if( vkCreateCommandPool( m_Device, &poolInfo, nullptr, &m_CommandPoolCopy ) != VK_SUCCESS )
         {
@@ -1502,18 +1503,23 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
-    /// Creates vertex buffers.
+    /// Creates a buffer.
     ////////////////////////////////////////////////////////////
-    StatusCode CreateVertexBuffers()
+    StatusCode CreateBuffer(
+        const VkDeviceSize          size,
+        const VkBufferUsageFlags    usage,
+        const VkMemoryPropertyFlags properties,
+        VkBuffer&                   buffer,
+        VkDeviceMemory&             bufferGpuMemory )
     {
         VkBufferCreateInfo bufferInfo = {};
 
         bufferInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size        = sizeof( Vertices[0] ) * Vertices.size();
-        bufferInfo.usage       = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        bufferInfo.size        = size;
+        bufferInfo.usage       = usage;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-        if( vkCreateBuffer( m_Device, &bufferInfo, nullptr, &m_VertexBuffer ) != VK_SUCCESS )
+        if( vkCreateBuffer( m_Device, &bufferInfo, nullptr, &buffer ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create vertex buffer!" << std::endl;
             return StatusCode::Fail;
@@ -1522,7 +1528,7 @@ private:
         // Get gpu memory requirements for the vertex buffer.
         VkMemoryRequirements gpuMemoryRequirements = {};
 
-        vkGetBufferMemoryRequirements( m_Device, m_VertexBuffer, &gpuMemoryRequirements );
+        vkGetBufferMemoryRequirements( m_Device, buffer, &gpuMemoryRequirements );
 
         // Allocate gpu memory for the vertex buffer.
         VkMemoryAllocateInfo allocationInfo = {};
@@ -1531,7 +1537,7 @@ private:
         allocationInfo.allocationSize  = gpuMemoryRequirements.size;
         allocationInfo.memoryTypeIndex = FindGpuMemoryType(
             gpuMemoryRequirements.memoryTypeBits,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
+            properties );
 
         if( allocationInfo.memoryTypeIndex == UINT32_MAX )
         {
@@ -1539,7 +1545,7 @@ private:
             return StatusCode::Fail;
         }
 
-        if( vkAllocateMemory( m_Device, &allocationInfo, nullptr, &m_VertexBufferGpuMemory ) != VK_SUCCESS )
+        if( vkAllocateMemory( m_Device, &allocationInfo, nullptr, &bufferGpuMemory ) != VK_SUCCESS )
         {
             std::cerr << "Failed to allocate vertex buffer memory!" << std::endl;
             return StatusCode::Fail;
@@ -1557,18 +1563,107 @@ private:
         //     }
         // }
 
-        if( vkBindBufferMemory( m_Device, m_VertexBuffer, m_VertexBufferGpuMemory, gpuMemoryOffset ) != VK_SUCCESS )
+        if( vkBindBufferMemory( m_Device, buffer, bufferGpuMemory, gpuMemoryOffset ) != VK_SUCCESS )
         {
             std::cerr << "Cannot bind buffer gpu memory!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Copies data from one buffer to another.
+    ////////////////////////////////////////////////////////////
+    StatusCode CopyBuffer( const VkBuffer srcBuffer, const VkBuffer dstBuffer, const VkDeviceSize size )
+    {
+        VkCommandBufferAllocateInfo allocationInfo = {};
+
+        allocationInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocationInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocationInfo.commandPool        = m_CommandPoolCopy;
+        allocationInfo.commandBufferCount = 1;
+
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+
+        vkAllocateCommandBuffers( m_Device, &allocationInfo, &commandBuffer );
+
+        VkCommandBufferBeginInfo beginInfo = {};
+
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT; // Tells the driver that our intent is to use the command buffer once
+                                                                       // and wait with returning from the function until the copy operation has finished executing.
+
+        vkBeginCommandBuffer( commandBuffer, &beginInfo );
+
+        VkBufferCopy copyRegion = {};
+
+        copyRegion.srcOffset = 0; // Optional.
+        copyRegion.dstOffset = 0; // Optional.
+        copyRegion.size      = size;
+
+        vkCmdCopyBuffer( commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion );
+
+        vkEndCommandBuffer( commandBuffer );
+
+        VkSubmitInfo submitInfo = {};
+
+        submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers    = &commandBuffer;
+
+        vkQueueSubmit( m_CopyQueue, 1, &submitInfo, VK_NULL_HANDLE );
+
+        // Wait for the queue to become idle.
+        vkQueueWaitIdle( m_CopyQueue );
+
+        vkFreeCommandBuffers( m_Device, m_CommandPoolCopy, 1, &commandBuffer );
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Creates vertex buffers.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateVertexBuffer()
+    {
+        StatusCode         result                 = StatusCode::Success;
+        VkBuffer           stagingBuffer          = VK_NULL_HANDLE;
+        VkDeviceMemory     stagingBufferGpuMemory = VK_NULL_HANDLE;
+        const VkDeviceSize bufferSize             = sizeof( Vertices[0] ) * Vertices.size();
+
+        result = CreateBuffer(
+            bufferSize,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            stagingBuffer,
+            stagingBufferGpuMemory );
+
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Cannot create staging buffer for vertex buffer!" << std::endl;
             return StatusCode::Fail;
         }
 
         // Fill the vertex buffer.
         void* data;
 
-        vkMapMemory( m_Device, m_VertexBufferGpuMemory, 0, bufferInfo.size, 0, &data );
-        memcpy_s( data, bufferInfo.size, Vertices.data(), bufferInfo.size );
-        vkUnmapMemory( m_Device, m_VertexBufferGpuMemory );
+        vkMapMemory( m_Device, stagingBufferGpuMemory, 0, bufferSize, 0, &data );
+        memcpy_s( data, bufferSize, Vertices.data(), bufferSize );
+        vkUnmapMemory( m_Device, stagingBufferGpuMemory );
+
+        result = CreateBuffer(
+            bufferSize,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            m_VertexBuffer,
+            m_VertexBufferGpuMemory );
+
+        // Copy data from the staging buffer to vertex buffer.
+        CopyBuffer( stagingBuffer, m_VertexBuffer, bufferSize );
+
+        vkDestroyBuffer( m_Device, stagingBuffer, nullptr );
+        vkFreeMemory( m_Device, stagingBufferGpuMemory, nullptr );
 
         return StatusCode::Success;
     }
