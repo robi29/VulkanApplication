@@ -210,6 +210,7 @@ private:
     VkImage                      m_TextureImage;
     VkDeviceMemory               m_TextureImageGpuMemory;
     VkImageView                  m_TextureImageView;
+    VkSampler                    m_TextureSampler;
     VkBuffer                     m_VertexBuffer;
     VkDeviceMemory               m_VertexBufferGpuMemory;
     VkBuffer                     m_IndexBuffer;
@@ -224,6 +225,7 @@ private:
     QueueFamilyIndices           m_QueueFamilyIndices;
     uint32_t                     m_CurrentFrame;
     bool                         m_IsFrameBufferResized;
+    float                        m_MaxSamplerAnisotropy;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -284,6 +286,7 @@ public:
         , m_TextureImage( VK_NULL_HANDLE )
         , m_TextureImageGpuMemory( VK_NULL_HANDLE )
         , m_TextureImageView( VK_NULL_HANDLE )
+        , m_TextureSampler( VK_NULL_HANDLE )
         , m_VertexBuffer( VK_NULL_HANDLE )
         , m_VertexBufferGpuMemory( VK_NULL_HANDLE )
         , m_IndexBuffer( VK_NULL_HANDLE )
@@ -298,6 +301,7 @@ public:
         , m_QueueFamilyIndices{}
         , m_CurrentFrame( 0 )
         , m_IsFrameBufferResized( false )
+        , m_MaxSamplerAnisotropy( 1.0f )
         , m_PhysicalDeviceExtensions{}
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
@@ -506,6 +510,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Texture image view creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateTextureSampler();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Texture sampler creation failed!" << std::endl;
             return result;
         }
 
@@ -770,7 +781,7 @@ private:
     uint32_t RatePhysicalDeviceSuitability( VkPhysicalDevice physicalDevice )
     {
         // Get the physical device properties.
-        VkPhysicalDeviceProperties physicalDeviceProperties;
+        VkPhysicalDeviceProperties physicalDeviceProperties = {};
         vkGetPhysicalDeviceProperties( physicalDevice, &physicalDeviceProperties );
 
         // Get the physical device features.
@@ -811,6 +822,12 @@ private:
         }
 
         score += physicalDeviceProperties.limits.maxImageDimension2D;
+
+        // Get max sampler anisotropy.
+        if( m_PhysicalDeviceFeatures.samplerAnisotropy )
+        {
+            m_MaxSamplerAnisotropy = physicalDeviceProperties.limits.maxSamplerAnisotropy;
+        }
 
         return score;
     }
@@ -2070,6 +2087,47 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates texture sampler.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateTextureSampler()
+    {
+        VkSamplerCreateInfo samplerInfo = {};
+
+        samplerInfo.sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samplerInfo.magFilter               = VK_FILTER_LINEAR;
+        samplerInfo.minFilter               = VK_FILTER_LINEAR;
+        samplerInfo.addressModeU            = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeV            = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeW            = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.borderColor             = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+        samplerInfo.unnormalizedCoordinates = VK_FALSE;
+        samplerInfo.compareEnable           = VK_FALSE;
+        samplerInfo.compareOp               = VK_COMPARE_OP_ALWAYS;
+        samplerInfo.mipmapMode              = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerInfo.mipLodBias              = 0.0f;
+        samplerInfo.minLod                  = 0.0f;
+        samplerInfo.maxLod                  = 0.0f;
+        samplerInfo.maxAnisotropy           = m_MaxSamplerAnisotropy;
+
+        if( m_MaxSamplerAnisotropy > 1.0f )
+        {
+            samplerInfo.anisotropyEnable = VK_TRUE;
+        }
+        else
+        {
+            samplerInfo.anisotropyEnable = VK_FALSE;
+        }
+
+        if( vkCreateSampler( m_Device, &samplerInfo, nullptr, &m_TextureSampler ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create texture sampler!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Creates vertex buffers.
     ////////////////////////////////////////////////////////////
     StatusCode CreateVertexBuffer()
@@ -2739,6 +2797,9 @@ private:
     StatusCode CleanupVulkan()
     {
         CleanupSwapChain();
+
+        // Destroy texture sampler.
+        vkDestroySampler( m_Device, m_TextureSampler, nullptr );
 
         // Destroy texture image view.
         vkDestroyImageView( m_Device, m_TextureImageView, nullptr );
