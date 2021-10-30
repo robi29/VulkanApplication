@@ -26,6 +26,7 @@ struct Vertex
 {
     glm::vec2 position;
     glm::vec3 color;
+    glm::vec2 textureCoordinate;
 
     ////////////////////////////////////////////////////////////
     /// GetBindingDescription.
@@ -46,7 +47,7 @@ struct Vertex
     ////////////////////////////////////////////////////////////
     static auto GetAttributeDescriptions()
     {
-        std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions = {};
+        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions = {};
 
         // Position.
         attributeDescriptions[0].binding  = 0;
@@ -59,6 +60,12 @@ struct Vertex
         attributeDescriptions[1].location = 1;
         attributeDescriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
         attributeDescriptions[1].offset   = offsetof( Vertex, color );
+
+        // Texture coordinates.
+        attributeDescriptions[2].binding  = 0;
+        attributeDescriptions[2].location = 2;
+        attributeDescriptions[2].format   = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[2].offset   = offsetof( Vertex, textureCoordinate );
 
         return attributeDescriptions;
     }
@@ -78,10 +85,10 @@ struct UniformBufferObject
 /// Vertices.
 ////////////////////////////////////////////////////////////
 const std::vector<Vertex> Vertices = {
-    { { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f } },
-    { { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f } },
-    { { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } },
-    { { -0.5f, 0.5f }, { 0.3f, 0.0f, 1.0f } }
+    { { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },
+    { { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } },
+    { { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f } },
+    { { -0.5f, 0.5f }, { 0.3f, 0.0f, 1.0f }, { 1.0f, 1.0f } }
 };
 
 ////////////////////////////////////////////////////////////
@@ -1430,9 +1437,9 @@ private:
         VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
         vertexInputInfo.sType                                = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
         vertexInputInfo.vertexBindingDescriptionCount        = 1;
-        vertexInputInfo.pVertexBindingDescriptions           = &bindingDescription; // Optional.
+        vertexInputInfo.pVertexBindingDescriptions           = &bindingDescription;
         vertexInputInfo.vertexAttributeDescriptionCount      = static_cast<uint32_t>( attributeDescriptions.size() );
-        vertexInputInfo.pVertexAttributeDescriptions         = attributeDescriptions.data(); // Optional.
+        vertexInputInfo.pVertexAttributeDescriptions         = attributeDescriptions.data();
 
         // Create input assembly state.
         VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
