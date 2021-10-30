@@ -209,6 +209,7 @@ private:
     VkCommandPool                m_CommandPoolCopy;
     VkImage                      m_TextureImage;
     VkDeviceMemory               m_TextureImageGpuMemory;
+    VkImageView                  m_TextureImageView;
     VkBuffer                     m_VertexBuffer;
     VkDeviceMemory               m_VertexBufferGpuMemory;
     VkBuffer                     m_IndexBuffer;
@@ -282,6 +283,7 @@ public:
         , m_CommandPoolCopy( VK_NULL_HANDLE )
         , m_TextureImage( VK_NULL_HANDLE )
         , m_TextureImageGpuMemory( VK_NULL_HANDLE )
+        , m_TextureImageView( VK_NULL_HANDLE )
         , m_VertexBuffer( VK_NULL_HANDLE )
         , m_VertexBufferGpuMemory( VK_NULL_HANDLE )
         , m_IndexBuffer( VK_NULL_HANDLE )
@@ -496,7 +498,14 @@ private:
         result = CreateTextureImage();
         if( result != StatusCode::Success )
         {
-            std::cerr << "Texture Image creation failed!" << std::endl;
+            std::cerr << "Texture image creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateTextureImageView();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Texture image view creation failed!" << std::endl;
             return result;
         }
 
@@ -1239,30 +1248,21 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CreateImageViews()
     {
+        const uint32_t swapChainImageCount = static_cast<uint32_t>( m_SwapChainImages.size() );
+
         // Match swap chain image views to swap chain images.
-        m_SwapChainImageViews.resize( m_SwapChainImages.size() );
+        m_SwapChainImageViews.resize( swapChainImageCount );
 
-        for( size_t i = 0; i < m_SwapChainImages.size(); ++i )
+        for( uint32_t i = 0; i < swapChainImageCount; ++i )
         {
-            VkImageViewCreateInfo createInfo = {};
-            createInfo.sType                 = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            createInfo.image                 = m_SwapChainImages[i];
-            createInfo.viewType              = VK_IMAGE_VIEW_TYPE_2D;
-            createInfo.format                = m_SwapChainImageFormat;
-            createInfo.components.r          = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.g          = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.b          = VK_COMPONENT_SWIZZLE_IDENTITY;
-            createInfo.components.a          = VK_COMPONENT_SWIZZLE_IDENTITY;
-
             // For stereographics 3d applications a swap chain with multiple layers is required and
             // with multiple image views as well.
-            createInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-            createInfo.subresourceRange.baseMipLevel   = 0;
-            createInfo.subresourceRange.levelCount     = 1;
-            createInfo.subresourceRange.baseArrayLayer = 0;
-            createInfo.subresourceRange.layerCount     = 1;
+            const StatusCode result = CreateImageView(
+                m_SwapChainImages[i],
+                m_SwapChainImageFormat,
+                m_SwapChainImageViews[i] );
 
-            if( vkCreateImageView( m_Device, &createInfo, nullptr, &m_SwapChainImageViews[i] ) != VK_SUCCESS )
+            if( result != StatusCode::Success )
             {
                 std::cerr << "Cannot create swap chain image view!" << std::endl;
                 return StatusCode::Fail;
@@ -1688,6 +1688,39 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates an image view.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateImageView(
+        const VkImage  image,
+        const VkFormat format,
+        VkImageView&   imageView )
+    {
+        VkImageViewCreateInfo viewInfo = {};
+
+        viewInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image                           = image;
+        viewInfo.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format                          = format;
+        viewInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel   = 0;
+        viewInfo.subresourceRange.levelCount     = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount     = 1;
+        viewInfo.components.r                    = VK_COMPONENT_SWIZZLE_IDENTITY;
+        viewInfo.components.g                    = VK_COMPONENT_SWIZZLE_IDENTITY;
+        viewInfo.components.b                    = VK_COMPONENT_SWIZZLE_IDENTITY;
+        viewInfo.components.a                    = VK_COMPONENT_SWIZZLE_IDENTITY;
+
+        if( vkCreateImageView( m_Device, &viewInfo, nullptr, &imageView ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create image view!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Begins single time gpu commands within command buffer.
     ////////////////////////////////////////////////////////////
     VkCommandBuffer BeginSingleTimeCommands( const bool isCopyQueueIsUsed )
@@ -2015,6 +2048,25 @@ private:
         vkFreeMemory( m_Device, stagingBufferGpuMemory, nullptr );
 
         return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Creates texture image view.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateTextureImageView()
+    {
+        const StatusCode result = CreateImageView(
+            m_TextureImage,
+            VK_FORMAT_R8G8B8A8_SRGB,
+            m_TextureImageView );
+
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Cannot create texture image view!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        return result;
     }
 
     ////////////////////////////////////////////////////////////
@@ -2688,10 +2740,13 @@ private:
     {
         CleanupSwapChain();
 
-        // Destroy image.
+        // Destroy texture image view.
+        vkDestroyImageView( m_Device, m_TextureImageView, nullptr );
+
+        // Destroy texture image.
         vkDestroyImage( m_Device, m_TextureImage, nullptr );
 
-        // Free gpu memory associated with destroyed image.
+        // Free gpu memory associated with destroyed texture image.
         vkFreeMemory( m_Device, m_TextureImageGpuMemory, nullptr );
 
         // Destroy description set layout.
