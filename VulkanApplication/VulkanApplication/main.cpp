@@ -17,6 +17,10 @@
 
 #include "stb_image_library.h"
 
+#ifdef _DEBUG
+constexpr bool EnableBestPracticesValidation = false;
+#endif
+
 constexpr uint32_t MaxFramesInFlight = 2;
 
 ////////////////////////////////////////////////////////////
@@ -711,7 +715,21 @@ private:
         VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = {};
         PopulateDebugMessengerCreateInfo( debugCreateInfo );
 
-        createInfo.pNext = &debugCreateInfo;
+        if( EnableBestPracticesValidation )
+        {
+            const VkValidationFeatureEnableEXT enables  = VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT;
+            VkValidationFeaturesEXT            features = {};
+
+            features.sType                         = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+            features.enabledValidationFeatureCount = 1;
+            features.pEnabledValidationFeatures    = &enables;
+
+            createInfo.pNext = &features;
+        }
+        else
+        {
+            createInfo.pNext = &debugCreateInfo;
+        }
 #else
         createInfo.enabledLayerCount       = 0;
 #endif
