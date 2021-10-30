@@ -21,6 +21,8 @@
 constexpr bool EnableBestPracticesValidation = false;
 #endif
 
+constexpr uint64_t Kilobyte          = 1024;
+constexpr uint64_t Megabyte          = 1024 * Kilobyte;
 constexpr uint32_t MaxFramesInFlight = 2;
 
 ////////////////////////////////////////////////////////////
@@ -195,48 +197,52 @@ private:
     ////////////////////////////////////////////////////////////
     /// Private Vulkan members.
     ////////////////////////////////////////////////////////////
-    VkInstance                   m_Instance;
-    VkSurfaceKHR                 m_Surface;
-    VkPhysicalDevice             m_PhysicalDevice;
-    VkPhysicalDeviceFeatures     m_PhysicalDeviceFeatures;
-    VkDevice                     m_Device;
-    VkQueue                      m_GraphicsQueue;
-    VkQueue                      m_ComputeQueue;
-    VkQueue                      m_CopyQueue;
-    VkQueue                      m_PresentQueue;
-    VkSwapchainKHR               m_SwapChain;
-    std::vector<VkImage>         m_SwapChainImages;
-    VkFormat                     m_SwapChainImageFormat;
-    VkExtent2D                   m_SwapChainExtent;
-    std::vector<VkImageView>     m_SwapChainImageViews;
-    VkRenderPass                 m_RenderPass;
-    VkDescriptorSetLayout        m_DescriptorSetLayout;
-    VkDescriptorPool             m_DescriptorPool;
-    std::vector<VkDescriptorSet> m_DescriptorSets;
-    VkPipelineLayout             m_GraphicsPipelineLayout;
-    VkPipeline                   m_GraphicsPipeline;
-    std::vector<VkFramebuffer>   m_SwapChainFramebuffers;
-    VkCommandPool                m_CommandPoolGraphics;
-    VkCommandPool                m_CommandPoolCopy;
-    VkImage                      m_TextureImage;
-    VkDeviceMemory               m_TextureImageGpuMemory;
-    VkImageView                  m_TextureImageView;
-    VkSampler                    m_TextureSampler;
-    VkBuffer                     m_VertexBuffer;
-    VkDeviceMemory               m_VertexBufferGpuMemory;
-    VkBuffer                     m_IndexBuffer;
-    VkDeviceMemory               m_IndexBufferGpuMemory;
-    std::vector<VkBuffer>        m_UniformBuffers;
-    std::vector<VkDeviceMemory>  m_UniformBuffersGpuMemory;
-    std::vector<VkCommandBuffer> m_CommandBuffers;
-    std::vector<VkSemaphore>     m_ImageAvailableSemaphores;
-    std::vector<VkSemaphore>     m_RenderFinishedSemaphores;
-    std::vector<VkFence>         m_InFlightFences;
-    std::vector<VkFence>         m_ImagesInFlight;
-    QueueFamilyIndices           m_QueueFamilyIndices;
-    uint32_t                     m_CurrentFrame;
-    bool                         m_IsFrameBufferResized;
-    float                        m_MaxSamplerAnisotropy;
+    VkInstance                                     m_Instance;
+    VkSurfaceKHR                                   m_Surface;
+    VkPhysicalDevice                               m_PhysicalDevice;
+    VkPhysicalDeviceFeatures                       m_PhysicalDeviceFeatures;
+    VkDevice                                       m_Device;
+    VkQueue                                        m_GraphicsQueue;
+    VkQueue                                        m_ComputeQueue;
+    VkQueue                                        m_CopyQueue;
+    VkQueue                                        m_PresentQueue;
+    VkSwapchainKHR                                 m_SwapChain;
+    std::vector<VkImage>                           m_SwapChainImages;
+    VkFormat                                       m_SwapChainImageFormat;
+    VkExtent2D                                     m_SwapChainExtent;
+    std::vector<VkImageView>                       m_SwapChainImageViews;
+    VkRenderPass                                   m_RenderPass;
+    VkDescriptorSetLayout                          m_DescriptorSetLayout;
+    VkDescriptorPool                               m_DescriptorPool;
+    std::vector<VkDescriptorSet>                   m_DescriptorSets;
+    VkPipelineLayout                               m_GraphicsPipelineLayout;
+    VkPipeline                                     m_GraphicsPipeline;
+    std::vector<VkFramebuffer>                     m_SwapChainFramebuffers;
+    VkCommandPool                                  m_CommandPoolGraphics;
+    VkCommandPool                                  m_CommandPoolCopy;
+    VkImage                                        m_TextureImage;
+    std::pair<uint32_t, VkDeviceSize>              m_TextureImageGpuMemoryOffset;
+    VkImageView                                    m_TextureImageView;
+    VkSampler                                      m_TextureSampler;
+    VkBuffer                                       m_VertexBuffer;
+    std::pair<uint32_t, VkDeviceSize>              m_VertexBufferGpuMemoryOffset;
+    VkBuffer                                       m_IndexBuffer;
+    std::pair<uint32_t, VkDeviceSize>              m_IndexBufferGpuMemoryOffset;
+    std::vector<VkDeviceMemory>                    m_BufferGpuMemoryLocal;
+    std::vector<VkDeviceSize>                      m_BufferGpuMemoryLocalUsage;
+    std::vector<VkDeviceMemory>                    m_BufferGpuMemoryCpuVisible;
+    std::vector<VkDeviceSize>                      m_BufferGpuMemoryCpuVisibleUsage;
+    std::vector<VkBuffer>                          m_UniformBuffers;
+    std::vector<std::pair<uint32_t, VkDeviceSize>> m_UniformBuffersGpuMemoryOffsets;
+    std::vector<VkCommandBuffer>                   m_CommandBuffers;
+    std::vector<VkSemaphore>                       m_ImageAvailableSemaphores;
+    std::vector<VkSemaphore>                       m_RenderFinishedSemaphores;
+    std::vector<VkFence>                           m_InFlightFences;
+    std::vector<VkFence>                           m_ImagesInFlight;
+    QueueFamilyIndices                             m_QueueFamilyIndices;
+    uint32_t                                       m_CurrentFrame;
+    bool                                           m_IsFrameBufferResized;
+    float                                          m_MaxSamplerAnisotropy;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -295,15 +301,19 @@ public:
         , m_CommandPoolGraphics( VK_NULL_HANDLE )
         , m_CommandPoolCopy( VK_NULL_HANDLE )
         , m_TextureImage( VK_NULL_HANDLE )
-        , m_TextureImageGpuMemory( VK_NULL_HANDLE )
+        , m_TextureImageGpuMemoryOffset{}
         , m_TextureImageView( VK_NULL_HANDLE )
         , m_TextureSampler( VK_NULL_HANDLE )
         , m_VertexBuffer( VK_NULL_HANDLE )
-        , m_VertexBufferGpuMemory( VK_NULL_HANDLE )
+        , m_VertexBufferGpuMemoryOffset{}
         , m_IndexBuffer( VK_NULL_HANDLE )
-        , m_IndexBufferGpuMemory( VK_NULL_HANDLE )
+        , m_IndexBufferGpuMemoryOffset{}
+        , m_BufferGpuMemoryLocal{}
+        , m_BufferGpuMemoryLocalUsage{}
+        , m_BufferGpuMemoryCpuVisible{}
+        , m_BufferGpuMemoryCpuVisibleUsage{}
         , m_UniformBuffers{}
-        , m_UniformBuffersGpuMemory{}
+        , m_UniformBuffersGpuMemoryOffsets{}
         , m_CommandBuffers{}
         , m_ImageAvailableSemaphores{}
         , m_RenderFinishedSemaphores{}
@@ -321,6 +331,11 @@ public:
         m_ValidationLayers.emplace_back( "VK_LAYER_KHRONOS_validation" );
         m_DebugMessenger = VK_NULL_HANDLE;
 #endif
+
+        m_BufferGpuMemoryLocal.emplace_back( VK_NULL_HANDLE );
+        m_BufferGpuMemoryLocalUsage.emplace_back( 0 );
+        m_BufferGpuMemoryCpuVisible.emplace_back( VK_NULL_HANDLE );
+        m_BufferGpuMemoryCpuVisibleUsage.emplace_back( 0 );
     }
 
     ////////////////////////////////////////////////////////////
@@ -1674,11 +1689,11 @@ private:
     /// Creates a buffer.
     ////////////////////////////////////////////////////////////
     StatusCode CreateBuffer(
-        const VkDeviceSize          size,
-        const VkBufferUsageFlags    usage,
-        const VkMemoryPropertyFlags properties,
-        VkBuffer&                   buffer,
-        VkDeviceMemory&             bufferGpuMemory )
+        const VkDeviceSize                 size,
+        const VkBufferUsageFlags           usage,
+        const VkMemoryPropertyFlags        properties,
+        VkBuffer&                          buffer,
+        std::pair<uint32_t, VkDeviceSize>& bufferGpuMemoryOffsets )
     {
         VkBufferCreateInfo bufferInfo = {};
 
@@ -1693,49 +1708,87 @@ private:
             return StatusCode::Fail;
         }
 
-        // Get gpu memory requirements for the vertex buffer.
+        // Get gpu memory requirements for the buffer.
         VkMemoryRequirements gpuMemoryRequirements = {};
 
         vkGetBufferMemoryRequirements( m_Device, buffer, &gpuMemoryRequirements );
 
-        // Allocate gpu memory for the vertex buffer.
-        VkMemoryAllocateInfo allocationInfo = {};
-
-        allocationInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocationInfo.allocationSize  = gpuMemoryRequirements.size;
-        allocationInfo.memoryTypeIndex = FindGpuMemoryType(
-            gpuMemoryRequirements.memoryTypeBits,
-            properties );
-
-        if( allocationInfo.memoryTypeIndex == UINT32_MAX )
+        // Check if buffer has enough free space.
+        if( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
         {
-            std::cerr << "Cannot find gpu memory type!" << std::endl;
+            if( ( m_BufferGpuMemoryLocalUsage.back() + gpuMemoryRequirements.size ) > Megabyte ) // TODO: do not use 1MB of allocated memory
+            {
+                m_BufferGpuMemoryLocal.emplace_back( VK_NULL_HANDLE );
+                m_BufferGpuMemoryLocalUsage.emplace_back( 0 );
+            }
+        }
+        else
+        {
+            if( ( m_BufferGpuMemoryCpuVisibleUsage.back() + gpuMemoryRequirements.size ) > Megabyte )
+            {
+                m_BufferGpuMemoryCpuVisible.emplace_back( VK_NULL_HANDLE );
+                m_BufferGpuMemoryCpuVisibleUsage.emplace_back( 0 );
+            }
+        }
+
+        // Allocate buffer.
+        VkDeviceMemory& bufferGpuMemory = ( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
+            ? m_BufferGpuMemoryLocal.back()
+            : m_BufferGpuMemoryCpuVisible.back();
+
+        VkDeviceSize& bufferGpuMemoryUsage = ( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
+            ? m_BufferGpuMemoryLocalUsage.back()
+            : m_BufferGpuMemoryCpuVisibleUsage.back();
+
+        if( bufferGpuMemoryUsage == 0 )
+        {
+            // Allocate gpu memory for the buffer.
+            VkMemoryAllocateInfo allocationInfo = {};
+
+            allocationInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocationInfo.allocationSize  = Megabyte; // gpuMemoryRequirements.size
+            allocationInfo.memoryTypeIndex = FindGpuMemoryType(
+                gpuMemoryRequirements.memoryTypeBits,
+                properties );
+
+            if( allocationInfo.memoryTypeIndex == UINT32_MAX )
+            {
+                std::cerr << "Cannot find gpu memory type!" << std::endl;
+                return StatusCode::Fail;
+            }
+
+            if( vkAllocateMemory( m_Device, &allocationInfo, nullptr, &bufferGpuMemory ) != VK_SUCCESS )
+            {
+                std::cerr << "Failed to allocate buffer memory!" << std::endl;
+                return StatusCode::Fail;
+            }
+        }
+
+        // Bind allocated gpu memory with the buffer.
+        if( bufferGpuMemoryUsage % gpuMemoryRequirements.alignment != 0 )
+        {
+            std::cerr << "Buffer offset      = " << bufferGpuMemoryUsage << std::endl;
+            std::cerr << "Required alignment = " << gpuMemoryRequirements.alignment << std::endl;
+            std::cerr << "Gpu memory offset is not aligned!" << std::endl;
             return StatusCode::Fail;
         }
 
-        if( vkAllocateMemory( m_Device, &allocationInfo, nullptr, &bufferGpuMemory ) != VK_SUCCESS )
-        {
-            std::cerr << "Failed to allocate vertex buffer memory!" << std::endl;
-            return StatusCode::Fail;
-        }
-
-        // Bind allocated gpu memory with the vertex buffer.
-        const VkDeviceSize gpuMemoryOffset = 0;
-
-        // if( gpuMemoryOffset != 0 )
-        // {
-        //     if( gpuMemoryOffset % gpuMemoryRequirements.alignment != 0 )
-        //     {
-        //         std::cerr << "Gpu memory offset is not aligned!" << std::endl;
-        //         return StatusCode::Fail;
-        //     }
-        // }
-
-        if( vkBindBufferMemory( m_Device, buffer, bufferGpuMemory, gpuMemoryOffset ) != VK_SUCCESS )
+        if( vkBindBufferMemory( m_Device, buffer, bufferGpuMemory, bufferGpuMemoryUsage ) != VK_SUCCESS )
         {
             std::cerr << "Cannot bind buffer gpu memory!" << std::endl;
             return StatusCode::Fail;
         }
+
+        if( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
+        {
+            bufferGpuMemoryOffsets = std::make_pair( static_cast<uint32_t>( m_BufferGpuMemoryLocal.size() - 1 ), bufferGpuMemoryUsage );
+        }
+        else
+        {
+            bufferGpuMemoryOffsets = std::make_pair( static_cast<uint32_t>( m_BufferGpuMemoryCpuVisible.size() - 1 ), bufferGpuMemoryUsage );
+        }
+
+        bufferGpuMemoryUsage += gpuMemoryRequirements.size;
 
         return StatusCode::Success;
     }
@@ -1951,14 +2004,14 @@ private:
     /// Creates texture image.
     ////////////////////////////////////////////////////////////
     StatusCode CreateImage(
-        const uint32_t              textureWidth,
-        const uint32_t              textureHeight,
-        const VkFormat              format,
-        const VkImageTiling         tiling,
-        const VkImageUsageFlags     usage,
-        const VkMemoryPropertyFlags properties,
-        VkImage&                    image,
-        VkDeviceMemory&             imageMemory )
+        const uint32_t                     textureWidth,
+        const uint32_t                     textureHeight,
+        const VkFormat                     format,
+        const VkImageTiling                tiling,
+        const VkImageUsageFlags            usage,
+        const VkMemoryPropertyFlags        properties,
+        VkImage&                           image,
+        std::pair<uint32_t, VkDeviceSize>& bufferGpuMemoryOffsets )
     {
         VkImageCreateInfo imageInfo = {};
 
@@ -1983,23 +2036,84 @@ private:
             return StatusCode::Fail;
         }
 
+        // Get gpu memory requirements for the image.
         VkMemoryRequirements gpuMemoryRequirements = {};
 
         vkGetImageMemoryRequirements( m_Device, image, &gpuMemoryRequirements );
 
-        VkMemoryAllocateInfo allocationInfo = {};
-
-        allocationInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocationInfo.allocationSize  = gpuMemoryRequirements.size;
-        allocationInfo.memoryTypeIndex = FindGpuMemoryType( gpuMemoryRequirements.memoryTypeBits, properties );
-
-        if( vkAllocateMemory( m_Device, &allocationInfo, nullptr, &imageMemory ) != VK_SUCCESS )
+        // Check if buffer has enough free space.
+        if( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
         {
-            std::cerr << "Cannot allocate image memory!" << std::endl;
+            if( ( m_BufferGpuMemoryLocalUsage.back() + gpuMemoryRequirements.size ) > Megabyte )
+            {
+                m_BufferGpuMemoryLocal.emplace_back( VK_NULL_HANDLE );
+                m_BufferGpuMemoryLocalUsage.emplace_back( 0 );
+            }
+        }
+        else
+        {
+            if( ( m_BufferGpuMemoryCpuVisibleUsage.back() + gpuMemoryRequirements.size ) > Megabyte )
+            {
+                m_BufferGpuMemoryCpuVisible.emplace_back( VK_NULL_HANDLE );
+                m_BufferGpuMemoryCpuVisibleUsage.emplace_back( 0 );
+            }
+        }
+
+        // Allocate buffer.
+        VkDeviceMemory& bufferGpuMemory = ( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
+            ? m_BufferGpuMemoryLocal.back()
+            : m_BufferGpuMemoryCpuVisible.back();
+
+        VkDeviceSize& bufferGpuMemoryUsage = ( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
+            ? m_BufferGpuMemoryLocalUsage.back()
+            : m_BufferGpuMemoryCpuVisibleUsage.back();
+
+        if( bufferGpuMemoryUsage == 0 )
+        {
+            VkMemoryAllocateInfo allocationInfo = {};
+
+            allocationInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocationInfo.allocationSize  = Megabyte; // gpuMemoryRequirements.size
+            allocationInfo.memoryTypeIndex = FindGpuMemoryType( gpuMemoryRequirements.memoryTypeBits, properties );
+
+            if( allocationInfo.memoryTypeIndex == UINT32_MAX )
+            {
+                std::cerr << "Cannot find gpu memory type!" << std::endl;
+                return StatusCode::Fail;
+            }
+
+            if( vkAllocateMemory( m_Device, &allocationInfo, nullptr, &bufferGpuMemory ) != VK_SUCCESS )
+            {
+                std::cerr << "Cannot allocate image memory!" << std::endl;
+                return StatusCode::Fail;
+            }
+        }
+
+        // Bind allocated gpu memory with the given buffer.
+        if( bufferGpuMemoryUsage % gpuMemoryRequirements.alignment != 0 )
+        {
+            std::cerr << "Buffer offset      = " << bufferGpuMemoryUsage << std::endl;
+            std::cerr << "Required alignment = " << gpuMemoryRequirements.alignment << std::endl;
+            std::cerr << "Gpu memory offset is not aligned!" << std::endl;
             return StatusCode::Fail;
         }
 
-        vkBindImageMemory( m_Device, image, imageMemory, 0 );
+        if( vkBindImageMemory( m_Device, image, bufferGpuMemory, bufferGpuMemoryUsage ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot bind buffer gpu memory!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        if( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
+        {
+            bufferGpuMemoryOffsets = std::make_pair( static_cast<uint32_t>( m_BufferGpuMemoryLocal.size() - 1 ), bufferGpuMemoryUsage );
+        }
+        else
+        {
+            bufferGpuMemoryOffsets = std::make_pair( static_cast<uint32_t>( m_BufferGpuMemoryCpuVisible.size() - 1 ), bufferGpuMemoryUsage );
+        }
+
+        bufferGpuMemoryUsage += gpuMemoryRequirements.size;
 
         return StatusCode::Success;
     }
@@ -2026,10 +2140,10 @@ private:
 
         const VkDeviceSize imageSize = textureWidth * textureHeight * bytesPerPixel;
 
-        VkBuffer       stagingBuffer          = VK_NULL_HANDLE;
-        VkDeviceMemory stagingBufferGpuMemory = VK_NULL_HANDLE;
+        VkBuffer                          stagingBuffer        = VK_NULL_HANDLE;
+        std::pair<uint32_t, VkDeviceSize> stagingBufferOffsets = {};
 
-        result = CreateBuffer( imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferGpuMemory );
+        result = CreateBuffer( imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferOffsets );
 
         if( result != StatusCode::Success )
         {
@@ -2038,11 +2152,13 @@ private:
         }
 
         // Copy the texture to staging buffer.
-        void* data = nullptr;
+        void* data                  = nullptr;
+        auto  bufferGpuMemory       = m_BufferGpuMemoryCpuVisible[std::get<0>( stagingBufferOffsets )];
+        auto  bufferGpuMemoryOffset = std::get<1>( stagingBufferOffsets );
 
-        vkMapMemory( m_Device, stagingBufferGpuMemory, 0, imageSize, 0, &data );
+        vkMapMemory( m_Device, bufferGpuMemory, bufferGpuMemoryOffset, imageSize, 0, &data );
         memcpy( data, pixels, static_cast<size_t>( imageSize ) );
-        vkUnmapMemory( m_Device, stagingBufferGpuMemory );
+        vkUnmapMemory( m_Device, bufferGpuMemory );
 
         // Free texture.
         StbImage::unloadRbga( pixels );
@@ -2056,7 +2172,7 @@ private:
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             m_TextureImage,
-            m_TextureImageGpuMemory );
+            m_TextureImageGpuMemoryOffset );
 
         if( result != StatusCode::Success )
         {
@@ -2098,7 +2214,6 @@ private:
         }
 
         vkDestroyBuffer( m_Device, stagingBuffer, nullptr );
-        vkFreeMemory( m_Device, stagingBufferGpuMemory, nullptr );
 
         return StatusCode::Success;
     }
@@ -2168,17 +2283,17 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CreateVertexBuffer()
     {
-        StatusCode         result                 = StatusCode::Success;
-        VkBuffer           stagingBuffer          = VK_NULL_HANDLE;
-        VkDeviceMemory     stagingBufferGpuMemory = VK_NULL_HANDLE;
-        const VkDeviceSize bufferSize             = sizeof( Vertices[0] ) * Vertices.size();
+        StatusCode                        result               = StatusCode::Success;
+        VkBuffer                          stagingBuffer        = VK_NULL_HANDLE;
+        std::pair<uint32_t, VkDeviceSize> stagingBufferOffsets = {};
+        const VkDeviceSize                bufferSize           = sizeof( Vertices[0] ) * Vertices.size();
 
         result = CreateBuffer(
             bufferSize,
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             stagingBuffer,
-            stagingBufferGpuMemory );
+            stagingBufferOffsets );
 
         if( result != StatusCode::Success )
         {
@@ -2187,18 +2302,20 @@ private:
         }
 
         // Fill the vertex buffer.
-        void* data = nullptr;
+        void* data                  = nullptr;
+        auto  bufferGpuMemory       = m_BufferGpuMemoryCpuVisible[std::get<0>( stagingBufferOffsets )];
+        auto  bufferGpuMemoryOffset = std::get<1>( stagingBufferOffsets );
 
-        vkMapMemory( m_Device, stagingBufferGpuMemory, 0, bufferSize, 0, &data );
+        vkMapMemory( m_Device, bufferGpuMemory, bufferGpuMemoryOffset, bufferSize, 0, &data );
         memcpy_s( data, bufferSize, Vertices.data(), bufferSize );
-        vkUnmapMemory( m_Device, stagingBufferGpuMemory );
+        vkUnmapMemory( m_Device, bufferGpuMemory );
 
         result = CreateBuffer(
             bufferSize,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             m_VertexBuffer,
-            m_VertexBufferGpuMemory );
+            m_VertexBufferGpuMemoryOffset );
 
         if( result != StatusCode::Success )
         {
@@ -2210,7 +2327,6 @@ private:
         CopyBuffer( stagingBuffer, m_VertexBuffer, bufferSize );
 
         vkDestroyBuffer( m_Device, stagingBuffer, nullptr );
-        vkFreeMemory( m_Device, stagingBufferGpuMemory, nullptr );
 
         return StatusCode::Success;
     }
@@ -2220,17 +2336,17 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CreateIndexBuffer()
     {
-        StatusCode         result                 = StatusCode::Success;
-        VkBuffer           stagingBuffer          = VK_NULL_HANDLE;
-        VkDeviceMemory     stagingBufferGpuMemory = VK_NULL_HANDLE;
-        const VkDeviceSize bufferSize             = sizeof( Indices[0] ) * Indices.size();
+        StatusCode                        result               = StatusCode::Success;
+        VkBuffer                          stagingBuffer        = VK_NULL_HANDLE;
+        std::pair<uint32_t, VkDeviceSize> stagingBufferOffsets = {};
+        const VkDeviceSize                bufferSize           = sizeof( Indices[0] ) * Indices.size();
 
         result = CreateBuffer(
             bufferSize,
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
             stagingBuffer,
-            stagingBufferGpuMemory );
+            stagingBufferOffsets );
 
         if( result != StatusCode::Success )
         {
@@ -2239,24 +2355,25 @@ private:
         }
 
         // Fill the index buffer.
-        void* data = nullptr;
+        void* data                  = nullptr;
+        auto  bufferGpuMemory       = m_BufferGpuMemoryCpuVisible[std::get<0>( stagingBufferOffsets )];
+        auto  bufferGpuMemoryOffset = std::get<1>( stagingBufferOffsets );
 
-        vkMapMemory( m_Device, stagingBufferGpuMemory, 0, bufferSize, 0, &data );
+        vkMapMemory( m_Device, bufferGpuMemory, bufferGpuMemoryOffset, bufferSize, 0, &data );
         memcpy_s( data, bufferSize, Indices.data(), bufferSize );
-        vkUnmapMemory( m_Device, stagingBufferGpuMemory );
+        vkUnmapMemory( m_Device, bufferGpuMemory );
 
         result = CreateBuffer(
             bufferSize,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             m_IndexBuffer,
-            m_IndexBufferGpuMemory );
+            m_IndexBufferGpuMemoryOffset );
 
         // Copy data from the staging buffer to index buffer.
         CopyBuffer( stagingBuffer, m_IndexBuffer, bufferSize );
 
         vkDestroyBuffer( m_Device, stagingBuffer, nullptr );
-        vkFreeMemory( m_Device, stagingBufferGpuMemory, nullptr );
 
         return StatusCode::Success;
     }
@@ -2270,11 +2387,18 @@ private:
         const VkDeviceSize bufferSize         = sizeof( UniformBufferObject );
 
         m_UniformBuffers.resize( swaChainImageCount );
-        m_UniformBuffersGpuMemory.resize( swaChainImageCount );
+        m_UniformBuffersGpuMemoryOffsets.resize( swaChainImageCount );
 
         for( uint32_t i = 0; i < swaChainImageCount; ++i )
         {
-            const StatusCode result = CreateBuffer( bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, m_UniformBuffers[i], m_UniformBuffersGpuMemory[i] );
+            // TODO: try to use already freed uniform buffers.
+            const StatusCode result = CreateBuffer(
+                bufferSize,
+                VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                m_UniformBuffers[i],
+                m_UniformBuffersGpuMemoryOffsets[i] );
+
             if( result != StatusCode::Success )
             {
                 std::cerr << "Cannot create buffer for uniform buffer!" << std::endl;
@@ -2674,11 +2798,14 @@ private:
         //ubo.proj[1][1] *= -1;
 
         // Copy data to buffer.
-        void* data = nullptr;
+        void* data                         = nullptr;
+        auto  uniformBufferGpuMemoryOffset = m_UniformBuffersGpuMemoryOffsets[currentImage];
+        auto  bufferGpuMemory              = m_BufferGpuMemoryCpuVisible[std::get<0>( uniformBufferGpuMemoryOffset )];
+        auto  bufferGpuMemoryOffset        = std::get<1>( uniformBufferGpuMemoryOffset );
 
-        vkMapMemory( m_Device, m_UniformBuffersGpuMemory[currentImage], 0, sizeof( ubo ), 0, &data );
+        vkMapMemory( m_Device, bufferGpuMemory, bufferGpuMemoryOffset, sizeof( ubo ), 0, &data );
         memcpy( data, &ubo, sizeof( ubo ) );
-        vkUnmapMemory( m_Device, m_UniformBuffersGpuMemory[currentImage] );
+        vkUnmapMemory( m_Device, bufferGpuMemory );
     }
 
     ////////////////////////////////////////////////////////////
@@ -2822,12 +2949,6 @@ private:
             vkDestroyBuffer( m_Device, uniformBuffer, nullptr );
         }
 
-        // Free uniform buffers gpu memory.
-        for( auto& uniformBufferGpuMemory : m_UniformBuffersGpuMemory )
-        {
-            vkFreeMemory( m_Device, uniformBufferGpuMemory, nullptr );
-        }
-
         // Destroy descriptor pool.
         vkDestroyDescriptorPool( m_Device, m_DescriptorPool, nullptr );
 
@@ -2869,23 +2990,26 @@ private:
         // Destroy texture image.
         vkDestroyImage( m_Device, m_TextureImage, nullptr );
 
-        // Free gpu memory associated with destroyed texture image.
-        vkFreeMemory( m_Device, m_TextureImageGpuMemory, nullptr );
-
         // Destroy description set layout.
         vkDestroyDescriptorSetLayout( m_Device, m_DescriptorSetLayout, nullptr );
 
         // Destroy index buffer.
         vkDestroyBuffer( m_Device, m_IndexBuffer, nullptr );
 
-        // Free gpu memory associated with destroyed index buffer.
-        vkFreeMemory( m_Device, m_IndexBufferGpuMemory, nullptr );
-
         // Destroy vertex buffer.
         vkDestroyBuffer( m_Device, m_VertexBuffer, nullptr );
 
-        // Free gpu memory associated with destroyed vertex buffer.
-        vkFreeMemory( m_Device, m_VertexBufferGpuMemory, nullptr );
+        // Free gpu memory associated with local memory.
+        for( auto& bufferGpuMemoryLocal : m_BufferGpuMemoryLocal )
+        {
+            vkFreeMemory( m_Device, bufferGpuMemoryLocal, nullptr );
+        }
+
+        // Free gpu memory associated with cpu visible memory.
+        for( auto& bufferGpuMemoryCpuVisible : m_BufferGpuMemoryCpuVisible )
+        {
+            vkFreeMemory( m_Device, bufferGpuMemoryCpuVisible, nullptr );
+        }
 
         for( auto& inFlightFence : m_InFlightFences )
         {
