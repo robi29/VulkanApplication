@@ -205,8 +205,10 @@ private:
     VkPipelineLayout             m_GraphicsPipelineLayout;
     VkPipeline                   m_GraphicsPipeline;
     std::vector<VkFramebuffer>   m_SwapChainFramebuffers;
-    VkCommandPool                m_CommandPool;
+    VkCommandPool                m_CommandPoolGraphics;
     VkCommandPool                m_CommandPoolCopy;
+    VkImage                      m_TextureImage;
+    VkDeviceMemory               m_TextureImageGpuMemory;
     VkBuffer                     m_VertexBuffer;
     VkDeviceMemory               m_VertexBufferGpuMemory;
     VkBuffer                     m_IndexBuffer;
@@ -276,8 +278,10 @@ public:
         , m_GraphicsPipelineLayout( VK_NULL_HANDLE )
         , m_GraphicsPipeline( VK_NULL_HANDLE )
         , m_SwapChainFramebuffers{}
-        , m_CommandPool( VK_NULL_HANDLE )
+        , m_CommandPoolGraphics( VK_NULL_HANDLE )
         , m_CommandPoolCopy( VK_NULL_HANDLE )
+        , m_TextureImage( VK_NULL_HANDLE )
+        , m_TextureImageGpuMemory( VK_NULL_HANDLE )
         , m_VertexBuffer( VK_NULL_HANDLE )
         , m_VertexBufferGpuMemory( VK_NULL_HANDLE )
         , m_IndexBuffer( VK_NULL_HANDLE )
@@ -486,6 +490,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Command pool creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateTextureImage();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Texture Image creation failed!" << std::endl;
             return result;
         }
 
@@ -1074,14 +1085,14 @@ private:
 
         if( queueFamilyIndices.size() > 1 )
         {
-            // Graphics and present queues are in different queue families.
+            // Graphics, compute, copy and present queues are in different queue families.
             createInfo.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
             createInfo.queueFamilyIndexCount = static_cast<uint32_t>( queueFamilyIndices.size() );
             createInfo.pQueueFamilyIndices   = queueFamilyIndices.data();
         }
         else
         {
-            // Graphics and present queues are in the same queue family.
+            // Graphics, compute, copy and present queues are in the same queue family.
             createInfo.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE;
             createInfo.queueFamilyIndexCount = 0;       // Optional.
             createInfo.pQueueFamilyIndices   = nullptr; // Optional.
@@ -1587,7 +1598,7 @@ private:
         poolInfo.flags                   = 0; // Optional.
 
         // Graphics command pool.
-        if( vkCreateCommandPool( m_Device, &poolInfo, nullptr, &m_CommandPool ) != VK_SUCCESS )
+        if( vkCreateCommandPool( m_Device, &poolInfo, nullptr, &m_CommandPoolGraphics ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create command pool!" << std::endl;
             return StatusCode::Fail;
@@ -1677,15 +1688,16 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
-    /// Copies data from one buffer to another.
+    /// Begins single time gpu commands within command buffer.
     ////////////////////////////////////////////////////////////
-    StatusCode CopyBuffer( const VkBuffer srcBuffer, const VkBuffer dstBuffer, const VkDeviceSize size )
+    VkCommandBuffer BeginSingleTimeCommands( const bool isCopyQueueIsUsed )
     {
         VkCommandBufferAllocateInfo allocationInfo = {};
+        VkCommandPool               commandPool    = isCopyQueueIsUsed ? m_CommandPoolCopy : m_CommandPoolGraphics;
 
         allocationInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocationInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocationInfo.commandPool        = m_CommandPoolCopy;
+        allocationInfo.commandPool        = commandPool;
         allocationInfo.commandBufferCount = 1;
 
         VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
@@ -1700,6 +1712,40 @@ private:
 
         vkBeginCommandBuffer( commandBuffer, &beginInfo );
 
+        return commandBuffer;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// End single time gpu commands within command buffer.
+    ////////////////////////////////////////////////////////////
+    void EndSingleTimeCommands( const bool isCopyQueueIsUsed, VkCommandBuffer commandBuffer )
+    {
+        vkEndCommandBuffer( commandBuffer );
+
+        VkSubmitInfo  submitInfo  = {};
+        VkQueue       queue       = isCopyQueueIsUsed ? m_CopyQueue : m_GraphicsQueue;
+        VkCommandPool commandPool = isCopyQueueIsUsed ? m_CommandPoolCopy : m_CommandPoolGraphics;
+
+        submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers    = &commandBuffer;
+
+        vkQueueSubmit( queue, 1, &submitInfo, VK_NULL_HANDLE );
+
+        // Wait for the queue to become idle.
+        vkQueueWaitIdle( queue );
+
+        vkFreeCommandBuffers( m_Device, commandPool, 1, &commandBuffer );
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Copies data from one buffer to another.
+    ////////////////////////////////////////////////////////////
+    void CopyBuffer( const VkBuffer srcBuffer, const VkBuffer dstBuffer, const VkDeviceSize size )
+    {
+        const bool      isCopyQueueIsUsed = true;
+        VkCommandBuffer commandBuffer     = BeginSingleTimeCommands( isCopyQueueIsUsed );
+
         VkBufferCopy copyRegion = {};
 
         copyRegion.srcOffset = 0; // Optional.
@@ -1708,20 +1754,265 @@ private:
 
         vkCmdCopyBuffer( commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion );
 
-        vkEndCommandBuffer( commandBuffer );
+        EndSingleTimeCommands( isCopyQueueIsUsed, commandBuffer );
+    }
 
-        VkSubmitInfo submitInfo = {};
+    ////////////////////////////////////////////////////////////
+    /// Handles image layout transitions .
+    ////////////////////////////////////////////////////////////
+    StatusCode TransitionImageLayout(
+        const VkImage image,
+        const VkFormat /* format*/,
+        const VkImageLayout oldLayout,
+        const VkImageLayout newLayout )
+    {
+        const bool      isCopyQueueIsUsed = false;
+        VkCommandBuffer commandBuffer     = BeginSingleTimeCommands( isCopyQueueIsUsed );
 
-        submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers    = &commandBuffer;
+        VkImageMemoryBarrier barrier          = {};
+        VkPipelineStageFlags sourceStage      = 0;
+        VkPipelineStageFlags destinationStage = 0;
 
-        vkQueueSubmit( m_CopyQueue, 1, &submitInfo, VK_NULL_HANDLE );
+        barrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout                       = oldLayout;
+        barrier.newLayout                       = newLayout;
+        barrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image                           = image;
+        barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel   = 0;
+        barrier.subresourceRange.levelCount     = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount     = 1;
 
-        // Wait for the queue to become idle.
-        vkQueueWaitIdle( m_CopyQueue );
+        if( oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL )
+        {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
-        vkFreeCommandBuffers( m_Device, m_CommandPoolCopy, 1, &commandBuffer );
+            sourceStage      = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        }
+        else if( oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL )
+        {
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            sourceStage      = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        }
+        else
+        {
+            std::cerr << "Unsupported layout transition!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        vkCmdPipelineBarrier(
+            commandBuffer,
+            sourceStage,
+            destinationStage,
+            0,
+            0,
+            nullptr,
+            0,
+            nullptr,
+            1,
+            &barrier );
+
+        EndSingleTimeCommands( isCopyQueueIsUsed, commandBuffer );
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Copies data from a buffer to an image.
+    ////////////////////////////////////////////////////////////
+    void CopyBufferToImage(
+        const VkBuffer buffer,
+        const VkImage  image,
+        const uint32_t width,
+        const uint32_t height )
+    {
+        const bool      isCopyQueueIsUsed = true;
+        VkCommandBuffer commandBuffer     = BeginSingleTimeCommands( isCopyQueueIsUsed );
+
+        VkBufferImageCopy region = {};
+
+        region.bufferOffset      = 0;
+        region.bufferRowLength   = 0;
+        region.bufferImageHeight = 0;
+
+        region.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel       = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount     = 1;
+
+        region.imageOffset = { 0, 0, 0 };
+        region.imageExtent = { width, height, 1 };
+
+        vkCmdCopyBufferToImage(
+            commandBuffer,
+            buffer,
+            image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1,
+            &region );
+
+        EndSingleTimeCommands( isCopyQueueIsUsed, commandBuffer );
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Creates texture image.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateImage(
+        const uint32_t              textureWidth,
+        const uint32_t              textureHeight,
+        const VkFormat              format,
+        const VkImageTiling         tiling,
+        const VkImageUsageFlags     usage,
+        const VkMemoryPropertyFlags properties,
+        VkImage&                    image,
+        VkDeviceMemory&             imageMemory )
+    {
+        VkImageCreateInfo imageInfo = {};
+
+        imageInfo.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType     = VK_IMAGE_TYPE_2D;
+        imageInfo.extent.width  = textureWidth;
+        imageInfo.extent.height = textureHeight;
+        imageInfo.extent.depth  = 1;
+        imageInfo.mipLevels     = 1;
+        imageInfo.arrayLayers   = 1;
+        imageInfo.format        = format;
+        imageInfo.tiling        = tiling;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageInfo.usage         = usage;
+        imageInfo.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+        imageInfo.samples       = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.flags         = 0; // Optional.
+
+        if( vkCreateImage( m_Device, &imageInfo, nullptr, &image ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create image!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        VkMemoryRequirements gpuMemoryRequirements = {};
+
+        vkGetImageMemoryRequirements( m_Device, image, &gpuMemoryRequirements );
+
+        VkMemoryAllocateInfo allocationInfo = {};
+
+        allocationInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocationInfo.allocationSize  = gpuMemoryRequirements.size;
+        allocationInfo.memoryTypeIndex = FindGpuMemoryType( gpuMemoryRequirements.memoryTypeBits, properties );
+
+        if( vkAllocateMemory( m_Device, &allocationInfo, nullptr, &imageMemory ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot allocate image memory!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        vkBindImageMemory( m_Device, image, imageMemory, 0 );
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Creates texture image.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateTextureImage()
+    {
+        constexpr uint32_t bytesPerPixel   = 4;
+        int32_t            textureWidth    = 0;
+        int32_t            textureHeight   = 0;
+        int32_t            textureChannels = 0;
+        std::string        textureFileName = "Textures/texture.jpg";
+        StatusCode         result          = StatusCode::Success;
+
+        Pixels* pixels = StbImage::loadRgba( textureFileName, textureWidth, textureHeight, textureChannels );
+
+        if( pixels == nullptr )
+        {
+            std::cerr << "Failed to load texture image!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        const VkDeviceSize imageSize = textureWidth * textureHeight * bytesPerPixel;
+
+        VkBuffer       stagingBuffer          = VK_NULL_HANDLE;
+        VkDeviceMemory stagingBufferGpuMemory = VK_NULL_HANDLE;
+
+        result = CreateBuffer( imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferGpuMemory );
+
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Cannot create staging buffer for texture image!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Copy the texture to staging buffer.
+        void* data = nullptr;
+
+        vkMapMemory( m_Device, stagingBufferGpuMemory, 0, imageSize, 0, &data );
+        memcpy( data, pixels, static_cast<size_t>( imageSize ) );
+        vkUnmapMemory( m_Device, stagingBufferGpuMemory );
+
+        // Free texture.
+        StbImage::unloadRbga( pixels );
+
+        // Create image.
+        result = CreateImage(
+            textureWidth,
+            textureHeight,
+            VK_FORMAT_R8G8B8A8_SRGB,
+            VK_IMAGE_TILING_OPTIMAL,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            m_TextureImage,
+            m_TextureImageGpuMemory );
+
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Cannot create image for texture image!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Transition image layout from undefined to transfer destination.
+        result = TransitionImageLayout(
+            m_TextureImage,
+            VK_FORMAT_R8G8B8A8_SRGB,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
+
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Cannot handle image layout transition!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Copy buffer to image.
+        CopyBufferToImage(
+            stagingBuffer,
+            m_TextureImage,
+            static_cast<uint32_t>( textureWidth ),
+            static_cast<uint32_t>( textureHeight ) );
+
+        // Transition image layout from transfer destination to shader read only.
+        result = TransitionImageLayout(
+            m_TextureImage,
+            VK_FORMAT_R8G8B8A8_SRGB,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL );
+
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Cannot handle image layout transition!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        vkDestroyBuffer( m_Device, stagingBuffer, nullptr );
+        vkFreeMemory( m_Device, stagingBufferGpuMemory, nullptr );
 
         return StatusCode::Success;
     }
@@ -1762,6 +2053,12 @@ private:
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             m_VertexBuffer,
             m_VertexBufferGpuMemory );
+
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Cannot create buffer for vertex buffer!" << std::endl;
+            return StatusCode::Fail;
+        }
 
         // Copy data from the staging buffer to vertex buffer.
         CopyBuffer( stagingBuffer, m_VertexBuffer, bufferSize );
@@ -1951,7 +2248,7 @@ private:
         // Populate command buffer allocate information.
         VkCommandBufferAllocateInfo allocInfo = {};
         allocInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocInfo.commandPool                 = m_CommandPool;
+        allocInfo.commandPool                 = m_CommandPoolGraphics;
         allocInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount          = static_cast<uint32_t>( m_CommandBuffers.size() );
 
@@ -2363,7 +2660,7 @@ private:
         vkDestroyDescriptorPool( m_Device, m_DescriptorPool, nullptr );
 
         // Free command buffers.
-        vkFreeCommandBuffers( m_Device, m_CommandPool, static_cast<uint32_t>( m_CommandBuffers.size() ), m_CommandBuffers.data() );
+        vkFreeCommandBuffers( m_Device, m_CommandPoolGraphics, static_cast<uint32_t>( m_CommandBuffers.size() ), m_CommandBuffers.data() );
 
         // Destroy graphics pipeline.
         vkDestroyPipeline( m_Device, m_GraphicsPipeline, nullptr );
@@ -2390,6 +2687,12 @@ private:
     StatusCode CleanupVulkan()
     {
         CleanupSwapChain();
+
+        // Destroy image.
+        vkDestroyImage( m_Device, m_TextureImage, nullptr );
+
+        // Free gpu memory associated with destroyed image.
+        vkFreeMemory( m_Device, m_TextureImageGpuMemory, nullptr );
 
         // Destroy description set layout.
         vkDestroyDescriptorSetLayout( m_Device, m_DescriptorSetLayout, nullptr );
@@ -2423,7 +2726,7 @@ private:
 
         vkDestroyCommandPool( m_Device, m_CommandPoolCopy, nullptr );
 
-        vkDestroyCommandPool( m_Device, m_CommandPool, nullptr );
+        vkDestroyCommandPool( m_Device, m_CommandPoolGraphics, nullptr );
 
         vkDestroyDevice( m_Device, nullptr );
 
