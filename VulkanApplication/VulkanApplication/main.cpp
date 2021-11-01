@@ -109,7 +109,7 @@ const std::vector<Vertex> Vertices = {
 ////////////////////////////////////////////////////////////
 /// Indices.
 ////////////////////////////////////////////////////////////
-const std::vector<uint16_t> Indices = {
+const std::vector<uint32_t> Indices = {
     // First square.
     0,
     1,
@@ -2815,7 +2815,7 @@ private:
             vkCmdBindVertexBuffers( m_CommandBuffers[i], 0, 1, vertexBuffers, offsets );
 
             // Bind the index buffer.
-            vkCmdBindIndexBuffer( m_CommandBuffers[i], m_IndexBuffer, 0, VK_INDEX_TYPE_UINT16 );
+            vkCmdBindIndexBuffer( m_CommandBuffers[i], m_IndexBuffer, 0, VK_INDEX_TYPE_UINT32 );
 
             // Bind the descriptor sets.
             vkCmdBindDescriptorSets( m_CommandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipelineLayout, 0, 1, &m_DescriptorSets[i], 0, nullptr );
