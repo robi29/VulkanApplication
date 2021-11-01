@@ -17,7 +17,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "main.h"
+
 #include "stb_image_library.h"
+#include "tiny_obj_loader_library.h"
 
 #ifdef _DEBUG
 constexpr bool EnableBestPracticesValidation = false;
@@ -28,56 +31,46 @@ constexpr uint64_t Megabyte          = 1024 * Kilobyte;
 constexpr uint32_t MaxFramesInFlight = 2;
 
 ////////////////////////////////////////////////////////////
-/// Vertex structure.
+/// GetBindingDescription.
 ////////////////////////////////////////////////////////////
-struct Vertex
+auto Vertex::GetBindingDescription()
 {
-    glm::vec3 position;
-    glm::vec3 color;
-    glm::vec2 textureCoordinate;
+    VkVertexInputBindingDescription bindingDescription = {};
 
-    ////////////////////////////////////////////////////////////
-    /// GetBindingDescription.
-    ////////////////////////////////////////////////////////////
-    static auto GetBindingDescription()
-    {
-        VkVertexInputBindingDescription bindingDescription = {};
+    bindingDescription.binding   = 0; // Index used in attribute descriptions.
+    bindingDescription.stride    = sizeof( Vertex );
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-        bindingDescription.binding   = 0; // Index used in attribute descriptions.
-        bindingDescription.stride    = sizeof( Vertex );
-        bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    return bindingDescription;
+}
 
-        return bindingDescription;
-    }
+////////////////////////////////////////////////////////////
+/// GetAttributeDescriptions.
+////////////////////////////////////////////////////////////
+auto Vertex::GetAttributeDescriptions()
+{
+    std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions = {};
 
-    ////////////////////////////////////////////////////////////
-    /// GetAttributeDescriptions.
-    ////////////////////////////////////////////////////////////
-    static auto GetAttributeDescriptions()
-    {
-        std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions = {};
+    // Position.
+    attributeDescriptions[0].binding  = 0;
+    attributeDescriptions[0].location = 0;
+    attributeDescriptions[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].offset   = offsetof( Vertex, position );
 
-        // Position.
-        attributeDescriptions[0].binding  = 0;
-        attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[0].offset   = offsetof( Vertex, position );
+    // Color.
+    attributeDescriptions[1].binding  = 0;
+    attributeDescriptions[1].location = 1;
+    attributeDescriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[1].offset   = offsetof( Vertex, color );
 
-        // Color.
-        attributeDescriptions[1].binding  = 0;
-        attributeDescriptions[1].location = 1;
-        attributeDescriptions[1].format   = VK_FORMAT_R32G32B32_SFLOAT;
-        attributeDescriptions[1].offset   = offsetof( Vertex, color );
+    // Texture coordinates.
+    attributeDescriptions[2].binding  = 0;
+    attributeDescriptions[2].location = 2;
+    attributeDescriptions[2].format   = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[2].offset   = offsetof( Vertex, textureCoordinate );
 
-        // Texture coordinates.
-        attributeDescriptions[2].binding  = 0;
-        attributeDescriptions[2].location = 2;
-        attributeDescriptions[2].format   = VK_FORMAT_R32G32_SFLOAT;
-        attributeDescriptions[2].offset   = offsetof( Vertex, textureCoordinate );
-
-        return attributeDescriptions;
-    }
-};
+    return attributeDescriptions;
+}
 
 ////////////////////////////////////////////////////////////
 /// UniformBufferObject.
@@ -92,7 +85,7 @@ struct UniformBufferObject
 ////////////////////////////////////////////////////////////
 /// Vertices.
 ////////////////////////////////////////////////////////////
-const std::vector<Vertex> Vertices = {
+/* const std::vector<Vertex> Vertices = {
     // First square.
     { { -0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },
     { { 0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } },
@@ -104,12 +97,13 @@ const std::vector<Vertex> Vertices = {
     { { 0.5f, -0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 1.0f } },
     { { 0.5f, 0.5f, -0.5f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f } },
     { { -0.5f, 0.5f, -0.5f }, { 0.3f, 0.0f, 1.0f }, { 0.0f, 0.0f } }
-};
+};*/
+std::vector<Vertex> Vertices = {};
 
 ////////////////////////////////////////////////////////////
 /// Indices.
 ////////////////////////////////////////////////////////////
-const std::vector<uint32_t> Indices = {
+/* const std::vector<uint32_t> Indices = {
     // First square.
     0,
     1,
@@ -125,7 +119,8 @@ const std::vector<uint32_t> Indices = {
     6,
     7,
     4
-};
+};*/
+std::vector<uint32_t> Indices = {};
 
 ////////////////////////////////////////////////////////////
 /// vkCreateDebugUtilsMessengerExtension.
@@ -467,6 +462,13 @@ private:
     {
         StatusCode result = StatusCode::Success;
 
+        result = LoadModel();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Loading model creation failed!" << std::endl;
+            return result;
+        }
+
         result = CreateInstance();
         if( result != StatusCode::Success )
         {
@@ -681,6 +683,16 @@ private:
         glfwTerminate();
 
         return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
+    /// Loads a model.
+    ////////////////////////////////////////////////////////////
+    StatusCode LoadModel()
+    {
+        return TinyObjLoader::loadModel( "Models/viking_room.obj", Vertices, Indices )
+            ? StatusCode::Success
+            : StatusCode::Fail;
     }
 
     ////////////////////////////////////////////////////////////
@@ -2332,8 +2344,9 @@ private:
         int32_t            textureWidth    = 0;
         int32_t            textureHeight   = 0;
         int32_t            textureChannels = 0;
-        std::string        textureFileName = "Textures/texture.jpg";
-        StatusCode         result          = StatusCode::Success;
+        //std::string        textureFileName = "Textures/texture.jpg";
+        std::string textureFileName = "Textures/viking_room.png";
+        StatusCode  result          = StatusCode::Success;
 
         Pixels* pixels = StbImage::loadRgba( textureFileName, textureWidth, textureHeight, textureChannels );
 
