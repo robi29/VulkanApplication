@@ -30,7 +30,7 @@ constexpr uint32_t MaxFramesInFlight = 2;
 ////////////////////////////////////////////////////////////
 struct Vertex
 {
-    glm::vec2 position;
+    glm::vec3 position;
     glm::vec3 color;
     glm::vec2 textureCoordinate;
 
@@ -58,7 +58,7 @@ struct Vertex
         // Position.
         attributeDescriptions[0].binding  = 0;
         attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format   = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[0].format   = VK_FORMAT_R32G32B32_SFLOAT;
         attributeDescriptions[0].offset   = offsetof( Vertex, position );
 
         // Color.
@@ -91,10 +91,10 @@ struct UniformBufferObject
 /// Vertices.
 ////////////////////////////////////////////////////////////
 const std::vector<Vertex> Vertices = {
-    { { -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },
-    { { 0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } },
-    { { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f } },
-    { { -0.5f, 0.5f }, { 0.3f, 0.0f, 1.0f }, { 1.0f, 1.0f } }
+    { { -0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },
+    { { 0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } },
+    { { 0.5f, 0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f } },
+    { { -0.5f, 0.5f, 0.0f }, { 0.3f, 0.0f, 1.0f }, { 1.0f, 1.0f } }
 };
 
 ////////////////////////////////////////////////////////////
