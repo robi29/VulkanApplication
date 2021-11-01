@@ -229,8 +229,10 @@ private:
     VkBuffer                                       m_IndexBuffer;
     std::pair<uint32_t, VkDeviceSize>              m_IndexBufferGpuMemoryOffset;
     std::vector<VkDeviceMemory>                    m_BufferGpuMemoryLocal;
+    std::vector<VkDeviceSize>                      m_BufferGpuMemoryLocalSize;
     std::vector<VkDeviceSize>                      m_BufferGpuMemoryLocalUsage;
     std::vector<VkDeviceMemory>                    m_BufferGpuMemoryCpuVisible;
+    std::vector<VkDeviceSize>                      m_BufferGpuMemoryCpuVisibleSize;
     std::vector<VkDeviceSize>                      m_BufferGpuMemoryCpuVisibleUsage;
     std::vector<VkBuffer>                          m_UniformBuffers;
     std::vector<std::pair<uint32_t, VkDeviceSize>> m_UniformBuffersGpuMemoryOffsets;
@@ -309,8 +311,10 @@ public:
         , m_IndexBuffer( VK_NULL_HANDLE )
         , m_IndexBufferGpuMemoryOffset{}
         , m_BufferGpuMemoryLocal{}
+        , m_BufferGpuMemoryLocalSize{}
         , m_BufferGpuMemoryLocalUsage{}
         , m_BufferGpuMemoryCpuVisible{}
+        , m_BufferGpuMemoryCpuVisibleSize{}
         , m_BufferGpuMemoryCpuVisibleUsage{}
         , m_UniformBuffers{}
         , m_UniformBuffersGpuMemoryOffsets{}
@@ -333,8 +337,10 @@ public:
 #endif
 
         m_BufferGpuMemoryLocal.emplace_back( VK_NULL_HANDLE );
+        m_BufferGpuMemoryLocalSize.emplace_back( 0 );
         m_BufferGpuMemoryLocalUsage.emplace_back( 0 );
         m_BufferGpuMemoryCpuVisible.emplace_back( VK_NULL_HANDLE );
+        m_BufferGpuMemoryCpuVisibleSize.emplace_back( 0 );
         m_BufferGpuMemoryCpuVisibleUsage.emplace_back( 0 );
     }
 
@@ -1716,17 +1722,19 @@ private:
         // Check if buffer has enough free space.
         if( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
         {
-            if( ( m_BufferGpuMemoryLocalUsage.back() + gpuMemoryRequirements.size ) > Megabyte ) // TODO: do not use 1MB of allocated memory
+            if( ( m_BufferGpuMemoryLocalUsage.back() + gpuMemoryRequirements.size ) > m_BufferGpuMemoryLocalSize.back() )
             {
                 m_BufferGpuMemoryLocal.emplace_back( VK_NULL_HANDLE );
+                m_BufferGpuMemoryLocalSize.emplace_back( 0 );
                 m_BufferGpuMemoryLocalUsage.emplace_back( 0 );
             }
         }
         else
         {
-            if( ( m_BufferGpuMemoryCpuVisibleUsage.back() + gpuMemoryRequirements.size ) > Megabyte )
+            if( ( m_BufferGpuMemoryCpuVisibleUsage.back() + gpuMemoryRequirements.size ) > m_BufferGpuMemoryCpuVisibleSize.back() )
             {
                 m_BufferGpuMemoryCpuVisible.emplace_back( VK_NULL_HANDLE );
+                m_BufferGpuMemoryCpuVisibleSize.emplace_back( 0 );
                 m_BufferGpuMemoryCpuVisibleUsage.emplace_back( 0 );
             }
         }
@@ -1735,6 +1743,10 @@ private:
         VkDeviceMemory& bufferGpuMemory = ( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
             ? m_BufferGpuMemoryLocal.back()
             : m_BufferGpuMemoryCpuVisible.back();
+
+        VkDeviceSize& bufferGpuMemorySize = ( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
+            ? m_BufferGpuMemoryLocalSize.back()
+            : m_BufferGpuMemoryCpuVisibleSize.back();
 
         VkDeviceSize& bufferGpuMemoryUsage = ( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
             ? m_BufferGpuMemoryLocalUsage.back()
@@ -1745,8 +1757,10 @@ private:
             // Allocate gpu memory for the buffer.
             VkMemoryAllocateInfo allocationInfo = {};
 
+            const VkDeviceSize bytesToAllocate = ( ( gpuMemoryRequirements.size / Megabyte ) + 1 ) * Megabyte;
+
             allocationInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            allocationInfo.allocationSize  = Megabyte; // gpuMemoryRequirements.size
+            allocationInfo.allocationSize  = bytesToAllocate;
             allocationInfo.memoryTypeIndex = FindGpuMemoryType(
                 gpuMemoryRequirements.memoryTypeBits,
                 properties );
@@ -1762,6 +1776,8 @@ private:
                 std::cerr << "Failed to allocate buffer memory!" << std::endl;
                 return StatusCode::Fail;
             }
+
+            bufferGpuMemorySize = bytesToAllocate;
         }
 
         // Bind allocated gpu memory with the buffer.
@@ -2044,17 +2060,19 @@ private:
         // Check if buffer has enough free space.
         if( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
         {
-            if( ( m_BufferGpuMemoryLocalUsage.back() + gpuMemoryRequirements.size ) > Megabyte )
+            if( ( m_BufferGpuMemoryLocalUsage.back() + gpuMemoryRequirements.size ) > m_BufferGpuMemoryLocalSize.back() )
             {
                 m_BufferGpuMemoryLocal.emplace_back( VK_NULL_HANDLE );
+                m_BufferGpuMemoryLocalSize.emplace_back( 0 );
                 m_BufferGpuMemoryLocalUsage.emplace_back( 0 );
             }
         }
         else
         {
-            if( ( m_BufferGpuMemoryCpuVisibleUsage.back() + gpuMemoryRequirements.size ) > Megabyte )
+            if( ( m_BufferGpuMemoryCpuVisibleUsage.back() + gpuMemoryRequirements.size ) > m_BufferGpuMemoryCpuVisibleSize.back() )
             {
                 m_BufferGpuMemoryCpuVisible.emplace_back( VK_NULL_HANDLE );
+                m_BufferGpuMemoryCpuVisibleSize.emplace_back( 0 );
                 m_BufferGpuMemoryCpuVisibleUsage.emplace_back( 0 );
             }
         }
@@ -2064,6 +2082,10 @@ private:
             ? m_BufferGpuMemoryLocal.back()
             : m_BufferGpuMemoryCpuVisible.back();
 
+        VkDeviceSize& bufferGpuMemorySize = ( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
+            ? m_BufferGpuMemoryLocalSize.back()
+            : m_BufferGpuMemoryCpuVisibleSize.back();
+
         VkDeviceSize& bufferGpuMemoryUsage = ( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
             ? m_BufferGpuMemoryLocalUsage.back()
             : m_BufferGpuMemoryCpuVisibleUsage.back();
@@ -2072,8 +2094,10 @@ private:
         {
             VkMemoryAllocateInfo allocationInfo = {};
 
+            const VkDeviceSize bytesToAllocate = ( ( gpuMemoryRequirements.size / Megabyte ) + 1 ) * Megabyte;
+
             allocationInfo.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            allocationInfo.allocationSize  = Megabyte; // gpuMemoryRequirements.size
+            allocationInfo.allocationSize  = bytesToAllocate;
             allocationInfo.memoryTypeIndex = FindGpuMemoryType( gpuMemoryRequirements.memoryTypeBits, properties );
 
             if( allocationInfo.memoryTypeIndex == UINT32_MAX )
@@ -2087,6 +2111,8 @@ private:
                 std::cerr << "Cannot allocate image memory!" << std::endl;
                 return StatusCode::Fail;
             }
+
+            bufferGpuMemorySize = bytesToAllocate;
         }
 
         // Bind allocated gpu memory with the given buffer.
