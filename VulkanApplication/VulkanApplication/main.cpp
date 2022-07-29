@@ -181,6 +181,11 @@ struct QueueFamilyIndices
     uint32_t m_ComputeFamily;
     uint32_t m_CopyFamily;
     uint32_t m_PresentFamily;
+
+    uint32_t m_GraphicsCount;
+    uint32_t m_ComputeCount;
+    uint32_t m_CopyCount;
+    uint32_t m_PresentCount;
 };
 
 ////////////////////////////////////////////////////////////
@@ -971,26 +976,34 @@ private:
         // Get graphics queue family index.
         m_QueueFamilyIndices = FindQueueFamilies( m_PhysicalDevice );
 
-        // Set the queue priority.
-        const float queuePriority = 1.0f;
-
-        // Graphics and present queue create information.
-        std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-        std::set<uint32_t>                   uniqueQueueFamilies = {
-            m_QueueFamilyIndices.m_GraphicsFamily,
-            m_QueueFamilyIndices.m_ComputeFamily,
-            m_QueueFamilyIndices.m_PresentFamily,
-            m_QueueFamilyIndices.m_CopyFamily
+        // Graphics, compute, copy and present queues create information.
+        std::vector<VkDeviceQueueCreateInfo>    queueCreateInfos    = {};
+        std::vector<std::vector<float>>         queuesPriorities    = {};
+        std::set<std::pair<uint32_t, uint32_t>> uniqueQueueFamilies = {
+            { m_QueueFamilyIndices.m_GraphicsFamily, m_QueueFamilyIndices.m_GraphicsCount },
+            { m_QueueFamilyIndices.m_ComputeFamily, m_QueueFamilyIndices.m_ComputeCount },
+            { m_QueueFamilyIndices.m_CopyFamily, m_QueueFamilyIndices.m_CopyCount },
+            { m_QueueFamilyIndices.m_PresentFamily, m_QueueFamilyIndices.m_PresentCount }
         };
 
-        // Populate queue create information.
-        for( const uint32_t queueFamily : uniqueQueueFamilies )
+        for( const auto& queueFamily : uniqueQueueFamilies )
         {
+            // Set the queue priority.
+            std::vector<float> queuePriorities( queueFamily.second );
+
+            for( auto& queuePriority : queuePriorities )
+            {
+                queuePriority = 1.0f;
+            }
+
+            queuesPriorities.emplace_back( queuePriorities );
+
+            // Populate queue create information.
             VkDeviceQueueCreateInfo queueCreateInfo = {};
             queueCreateInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            queueCreateInfo.queueFamilyIndex        = queueFamily;
-            queueCreateInfo.queueCount              = 1;
-            queueCreateInfo.pQueuePriorities        = &queuePriority;
+            queueCreateInfo.queueFamilyIndex        = queueFamily.first;
+            queueCreateInfo.queueCount              = queueFamily.second;
+            queueCreateInfo.pQueuePriorities        = queuesPriorities.back().data();
 
             queueCreateInfos.emplace_back( queueCreateInfo );
         }
@@ -1020,7 +1033,9 @@ private:
         // Get graphics/compute queue.
         if( m_QueueFamilyIndices.m_GraphicsFamily == m_QueueFamilyIndices.m_ComputeFamily )
         {
-            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_GraphicsFamily, 0, &m_GraphicsQueue );
+            const uint32_t graphicsQueueIndex = m_QueueFamilyIndices.m_GraphicsCount - 1;
+
+            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_GraphicsFamily, graphicsQueueIndex, &m_GraphicsQueue );
             if( m_GraphicsQueue == nullptr )
             {
                 std::cerr << "Cannot obtain graphics queue!" << std::endl;
@@ -1031,14 +1046,17 @@ private:
         }
         else
         {
-            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_GraphicsFamily, 0, &m_GraphicsQueue );
+            const uint32_t graphicsQueueIndex = m_QueueFamilyIndices.m_GraphicsCount - 1;
+            const uint32_t computeQueueIndex  = m_QueueFamilyIndices.m_ComputeCount - 1;
+
+            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_GraphicsFamily, graphicsQueueIndex, &m_GraphicsQueue );
             if( m_GraphicsQueue == nullptr )
             {
                 std::cerr << "Cannot obtain graphics queue!" << std::endl;
                 return StatusCode::Fail;
             }
 
-            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_ComputeFamily, 0, &m_ComputeQueue );
+            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_ComputeFamily, computeQueueIndex, &m_ComputeQueue );
             if( m_ComputeQueue == nullptr )
             {
                 std::cerr << "Cannot obtain compute queue!" << std::endl;
@@ -1047,7 +1065,9 @@ private:
         }
 
         // Get copy family.
-        vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_CopyFamily, 0, &m_CopyQueue );
+        const uint32_t copyQueueIndex = m_QueueFamilyIndices.m_CopyCount - 1;
+
+        vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_CopyFamily, copyQueueIndex, &m_CopyQueue );
         if( m_CopyQueue == nullptr )
         {
             std::cerr << "Cannot obtain copy queue!" << std::endl;
@@ -1057,7 +1077,9 @@ private:
         // Get present family.
         if( m_QueueFamilyIndices.m_GraphicsFamily != m_QueueFamilyIndices.m_PresentFamily )
         {
-            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_PresentFamily, 0, &m_PresentQueue );
+            const uint32_t presentQueueIndex = m_QueueFamilyIndices.m_PresentCount - 1;
+
+            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_PresentFamily, presentQueueIndex, &m_PresentQueue );
             if( m_PresentQueue == nullptr )
             {
                 std::cerr << "Cannot obtain present queue!" << std::endl;
@@ -1096,14 +1118,17 @@ private:
             {
                 indices.m_GraphicsFamily    = index;
                 indices.m_HasGraphicsFamily = true;
+                indices.m_GraphicsCount     = queueFamily.queueCount;
             }
 
-            // Compute queue family.
+            // Compute queue family (explicitly).
             if( queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT &&
+                !( queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT ) &&
                 !indices.m_HasComputeFamily )
             {
                 indices.m_ComputeFamily    = index;
                 indices.m_HasComputeFamily = true;
+                indices.m_ComputeCount     = queueFamily.queueCount;
             }
 
             // Memory transfer queue family (explicitly).
@@ -1114,6 +1139,7 @@ private:
             {
                 indices.m_CopyFamily    = index;
                 indices.m_HasCopyFamily = true;
+                indices.m_CopyCount     = queueFamily.queueCount;
             }
 
             // Present queue family.
@@ -1125,6 +1151,7 @@ private:
                 {
                     indices.m_PresentFamily    = index;
                     indices.m_HasPresentFamily = true;
+                    indices.m_PresentCount     = queueFamily.queueCount;
                 }
             }
 
@@ -2344,7 +2371,7 @@ private:
         int32_t            textureWidth    = 0;
         int32_t            textureHeight   = 0;
         int32_t            textureChannels = 0;
-        //std::string        textureFileName = "Textures/texture.jpg";
+        // std::string        textureFileName = "Textures/texture.jpg";
         std::string textureFileName = "Textures/viking_room.png";
         StatusCode  result          = StatusCode::Success;
 
@@ -2834,7 +2861,7 @@ private:
             vkCmdBindDescriptorSets( m_CommandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipelineLayout, 0, 1, &m_DescriptorSets[i], 0, nullptr );
 
             // Draw.
-            //vkCmdDraw( m_CommandBuffers[i], static_cast<uint32_t>( Vertices.size() ), 1, 0, 0 );
+            // vkCmdDraw( m_CommandBuffers[i], static_cast<uint32_t>( Vertices.size() ), 1, 0, 0 );
             vkCmdDrawIndexed( m_CommandBuffers[i], static_cast<uint32_t>( Indices.size() ), 1, 0, 0, 0 );
 
             // End the render pass.
@@ -3027,7 +3054,7 @@ private:
         // Field of view, aspect ratio, near view plane, far view plane.
         ubo.proj = glm::perspective( glm::radians( 45.0f ), m_SwapChainExtent.width / static_cast<float>( m_SwapChainExtent.height ), 0.1f, 10.0f );
 
-        //ubo.proj[1][1] *= -1;
+        // ubo.proj[1][1] *= -1;
 
         // Copy data to buffer.
         void* data                         = nullptr;
