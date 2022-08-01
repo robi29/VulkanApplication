@@ -168,6 +168,14 @@ enum class StatusCode : uint32_t
 };
 
 ////////////////////////////////////////////////////////////
+/// Query type enumeration.
+////////////////////////////////////////////////////////////
+enum class QueryType : uint32_t
+{
+    PipelineStatistics = 0
+};
+
+////////////////////////////////////////////////////////////
 /// Queue family indices.
 ////////////////////////////////////////////////////////////
 struct QueueFamilyIndices
@@ -262,9 +270,11 @@ private:
     std::vector<VkSemaphore>                       m_RenderFinishedSemaphores;
     std::vector<VkFence>                           m_InFlightFences;
     std::vector<VkFence>                           m_ImagesInFlight;
+    std::vector<VkQueryPool>                       m_QueryPools;
     QueueFamilyIndices                             m_QueueFamilyIndices;
     uint32_t                                       m_CurrentFrame;
     bool                                           m_IsFrameBufferResized;
+    bool                                           m_IsPipelineStatisticsQuerySupported;
     float                                          m_MaxSamplerAnisotropy;
 
     ////////////////////////////////////////////////////////////
@@ -344,9 +354,11 @@ public:
         , m_RenderFinishedSemaphores{}
         , m_InFlightFences{}
         , m_ImagesInFlight{}
+        , m_QueryPools{}
         , m_QueueFamilyIndices{}
         , m_CurrentFrame( 0 )
         , m_IsFrameBufferResized( false )
+        , m_IsPipelineStatisticsQuerySupported( false )
         , m_MaxSamplerAnisotropy( 1.0f )
         , m_PhysicalDeviceExtensions{}
     {
@@ -626,6 +638,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Command buffers creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateQueries();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Queries creation failed!" << std::endl;
             return result;
         }
 
@@ -919,6 +938,9 @@ private:
         {
             m_MaxSamplerAnisotropy = physicalDeviceProperties.limits.maxSamplerAnisotropy;
         }
+
+        // Get pipeline statistics query.
+        m_IsPipelineStatisticsQuerySupported = m_PhysicalDeviceFeatures.pipelineStatisticsQuery;
 
         return score;
     }
@@ -2814,6 +2836,40 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates queries to collect metrics.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateQueries()
+    {
+        VkQueryPoolCreateInfo queryPoolInfo = {};
+
+        if( m_IsPipelineStatisticsQuerySupported )
+        {
+            queryPoolInfo.sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+            queryPoolInfo.queryType  = VK_QUERY_TYPE_PIPELINE_STATISTICS;
+            queryPoolInfo.queryCount = static_cast<uint32_t>( m_CommandBuffers.size() );
+            queryPoolInfo.pipelineStatistics =
+                VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_VERTICES_BIT |
+                VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_PRIMITIVES_BIT |
+                VK_QUERY_PIPELINE_STATISTIC_VERTEX_SHADER_INVOCATIONS_BIT |
+                VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT |
+                VK_QUERY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES_BIT |
+                VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT;
+
+            VkQueryPool queryPool = {};
+
+            if( vkCreateQueryPool( m_Device, &queryPoolInfo, nullptr, &queryPool ) != VK_SUCCESS )
+            {
+                std::cerr << "Failed to create queries!" << std::endl;
+                return StatusCode::Fail;
+            }
+
+            m_QueryPools.push_back( queryPool );
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Records command buffers.
     ////////////////////////////////////////////////////////////
     StatusCode RecordCommandBuffers()
@@ -2831,6 +2887,14 @@ private:
             {
                 std::cerr << "Failed to begin recording command buffer!" << std::endl;
                 return StatusCode::Fail;
+            }
+
+            // Reset query before render pass begin.
+            if( m_IsPipelineStatisticsQuerySupported )
+            {
+                const uint32_t queryPoolIndex = static_cast<uint32_t>( QueryType::PipelineStatistics );
+
+                vkCmdResetQueryPool( m_CommandBuffers[i], m_QueryPools[queryPoolIndex], static_cast<uint32_t>( i ), 1 );
             }
 
             // Define a clear color and depth.
@@ -2869,9 +2933,25 @@ private:
             // Bind the descriptor sets.
             vkCmdBindDescriptorSets( m_CommandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipelineLayout, 0, 1, &m_DescriptorSets[i], 0, nullptr );
 
+            // Query begin.
+            if( m_IsPipelineStatisticsQuerySupported )
+            {
+                const uint32_t queryPoolIndex = static_cast<uint32_t>( QueryType::PipelineStatistics );
+
+                vkCmdBeginQuery( m_CommandBuffers[i], m_QueryPools[queryPoolIndex], static_cast<uint32_t>( i ), 0 );
+            }
+
             // Draw.
             // vkCmdDraw( m_CommandBuffers[i], static_cast<uint32_t>( Vertices.size() ), 1, 0, 0 );
             vkCmdDrawIndexed( m_CommandBuffers[i], static_cast<uint32_t>( Indices.size() ), 1, 0, 0, 0 );
+
+            // Query end.
+            if( m_IsPipelineStatisticsQuerySupported )
+            {
+                const uint32_t queryPoolIndex = static_cast<uint32_t>( QueryType::PipelineStatistics );
+
+                vkCmdEndQuery( m_CommandBuffers[i], m_QueryPools[queryPoolIndex], static_cast<uint32_t>( i ) );
+            }
 
             // End the render pass.
             vkCmdEndRenderPass( m_CommandBuffers[i] );
@@ -3147,6 +3227,22 @@ private:
 
         result = vkQueuePresentKHR( m_PresentQueue, &presentInfo );
 
+        // Get query data.
+        if( m_IsPipelineStatisticsQuerySupported )
+        {
+            std::vector<uint64_t>    queryData( 6 );
+            const size_t             queryDataSize  = queryData.size() * sizeof( queryData[0] );
+            const VkQueryResultFlags queryDataFlags = VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT;
+            const uint32_t           queryPoolIndex = static_cast<uint32_t>( QueryType::PipelineStatistics );
+
+            VkResult queryResult = vkGetQueryPoolResults( m_Device, m_QueryPools[queryPoolIndex], imageIndex, 1, queryDataSize, queryData.data(), 0, queryDataFlags );
+            if( queryResult != VK_SUCCESS )
+            {
+                std::cerr << "Failed to get query data!" << std::endl;
+                return StatusCode::Fail;
+            }
+        }
+
         // Check swap chain status and recreate it if needed.
         if( result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || m_IsFrameBufferResized )
         {
@@ -3254,6 +3350,12 @@ private:
     StatusCode CleanupVulkan()
     {
         CleanupSwapChain();
+
+        // Destroy query pools.
+        for( auto& queryPool : m_QueryPools )
+        {
+            vkDestroyQueryPool( m_Device, queryPool, nullptr );
+        }
 
         // Destroy texture sampler.
         vkDestroySampler( m_Device, m_TextureSampler, nullptr );
