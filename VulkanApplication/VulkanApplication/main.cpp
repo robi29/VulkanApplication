@@ -988,6 +988,12 @@ private:
 
         for( const auto& queueFamily : uniqueQueueFamilies )
         {
+            if( queueFamily.second == 0 )
+            {
+                // Queue count is equal 0, continuing.
+                continue;
+            }
+
             // Set the queue priority.
             std::vector<float> queuePriorities( queueFamily.second );
 
@@ -1030,31 +1036,21 @@ private:
             return StatusCode::Fail;
         }
 
-        // Get graphics/compute queue.
-        if( m_QueueFamilyIndices.m_GraphicsFamily == m_QueueFamilyIndices.m_ComputeFamily )
+        // Get graphics queue.
+        const uint32_t graphicsQueueIndex = m_QueueFamilyIndices.m_GraphicsCount - 1;
+
+        vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_GraphicsFamily, graphicsQueueIndex, &m_GraphicsQueue );
+        if( m_GraphicsQueue == nullptr )
         {
-            const uint32_t graphicsQueueIndex = m_QueueFamilyIndices.m_GraphicsCount - 1;
-
-            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_GraphicsFamily, graphicsQueueIndex, &m_GraphicsQueue );
-            if( m_GraphicsQueue == nullptr )
-            {
-                std::cerr << "Cannot obtain graphics queue!" << std::endl;
-                return StatusCode::Fail;
-            }
-
-            m_ComputeQueue = m_GraphicsQueue;
+            std::cerr << "Cannot obtain graphics queue!" << std::endl;
+            return StatusCode::Fail;
         }
-        else
-        {
-            const uint32_t graphicsQueueIndex = m_QueueFamilyIndices.m_GraphicsCount - 1;
-            const uint32_t computeQueueIndex  = m_QueueFamilyIndices.m_ComputeCount - 1;
 
-            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_GraphicsFamily, graphicsQueueIndex, &m_GraphicsQueue );
-            if( m_GraphicsQueue == nullptr )
-            {
-                std::cerr << "Cannot obtain graphics queue!" << std::endl;
-                return StatusCode::Fail;
-            }
+        // Get compute queue.
+        if( m_QueueFamilyIndices.m_HasComputeFamily &&
+            m_QueueFamilyIndices.m_GraphicsFamily != m_QueueFamilyIndices.m_ComputeFamily )
+        {
+            const uint32_t computeQueueIndex = m_QueueFamilyIndices.m_ComputeCount - 1;
 
             vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_ComputeFamily, computeQueueIndex, &m_ComputeQueue );
             if( m_ComputeQueue == nullptr )
@@ -1063,19 +1059,32 @@ private:
                 return StatusCode::Fail;
             }
         }
+        else
+        {
+            m_ComputeQueue = m_GraphicsQueue;
+        }
 
         // Get copy family.
-        const uint32_t copyQueueIndex = m_QueueFamilyIndices.m_CopyCount - 1;
-
-        vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_CopyFamily, copyQueueIndex, &m_CopyQueue );
-        if( m_CopyQueue == nullptr )
+        if( m_QueueFamilyIndices.m_HasCopyFamily &&
+            m_QueueFamilyIndices.m_GraphicsFamily != m_QueueFamilyIndices.m_CopyFamily )
         {
-            std::cerr << "Cannot obtain copy queue!" << std::endl;
-            return StatusCode::Fail;
+            const uint32_t copyQueueIndex = m_QueueFamilyIndices.m_CopyCount - 1;
+
+            vkGetDeviceQueue( m_Device, m_QueueFamilyIndices.m_CopyFamily, copyQueueIndex, &m_CopyQueue );
+            if( m_CopyQueue == nullptr )
+            {
+                std::cerr << "Cannot obtain copy queue!" << std::endl;
+                return StatusCode::Fail;
+            }
+        }
+        else
+        {
+            m_CopyQueue = m_GraphicsQueue;
         }
 
         // Get present family.
-        if( m_QueueFamilyIndices.m_GraphicsFamily != m_QueueFamilyIndices.m_PresentFamily )
+        if( m_QueueFamilyIndices.m_HasPresentFamily &&
+            m_QueueFamilyIndices.m_GraphicsFamily != m_QueueFamilyIndices.m_PresentFamily )
         {
             const uint32_t presentQueueIndex = m_QueueFamilyIndices.m_PresentCount - 1;
 
