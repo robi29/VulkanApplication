@@ -1903,20 +1903,40 @@ private:
         // Check if buffer has enough free space.
         if( properties == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT )
         {
-            if( ( m_BufferGpuMemoryLocalUsage.back() + gpuMemoryRequirements.size ) > m_BufferGpuMemoryLocalSize.back() )
+            VkDeviceSize&      bufferGpuMemoryUsage = m_BufferGpuMemoryLocalUsage.back();
+            const VkDeviceSize memoryAlignment      = bufferGpuMemoryUsage % gpuMemoryRequirements.alignment;
+            const VkDeviceSize requiredSize         = memoryAlignment != 0
+                        ? bufferGpuMemoryUsage + gpuMemoryRequirements.size + ( gpuMemoryRequirements.alignment - memoryAlignment )
+                        : bufferGpuMemoryUsage + gpuMemoryRequirements.size;
+
+            if( requiredSize > m_BufferGpuMemoryLocalSize.back() )
             {
                 m_BufferGpuMemoryLocal.emplace_back( VK_NULL_HANDLE );
                 m_BufferGpuMemoryLocalSize.emplace_back( 0 );
                 m_BufferGpuMemoryLocalUsage.emplace_back( 0 );
             }
+            else
+            {
+                bufferGpuMemoryUsage += ( gpuMemoryRequirements.alignment - memoryAlignment ) % gpuMemoryRequirements.alignment;
+            }
         }
         else
         {
-            if( ( m_BufferGpuMemoryCpuVisibleUsage.back() + gpuMemoryRequirements.size ) > m_BufferGpuMemoryCpuVisibleSize.back() )
+            VkDeviceSize&      bufferGpuMemoryUsage = m_BufferGpuMemoryCpuVisibleUsage.back();
+            const VkDeviceSize memoryAlignment      = bufferGpuMemoryUsage % gpuMemoryRequirements.alignment;
+            const VkDeviceSize requiredSize         = memoryAlignment != 0
+                        ? bufferGpuMemoryUsage + gpuMemoryRequirements.size + ( gpuMemoryRequirements.alignment - memoryAlignment )
+                        : bufferGpuMemoryUsage + gpuMemoryRequirements.size;
+
+            if( requiredSize > m_BufferGpuMemoryCpuVisibleSize.back() )
             {
                 m_BufferGpuMemoryCpuVisible.emplace_back( VK_NULL_HANDLE );
                 m_BufferGpuMemoryCpuVisibleSize.emplace_back( 0 );
                 m_BufferGpuMemoryCpuVisibleUsage.emplace_back( 0 );
+            }
+            else
+            {
+                bufferGpuMemoryUsage += ( gpuMemoryRequirements.alignment - memoryAlignment ) % gpuMemoryRequirements.alignment;
             }
         }
 
