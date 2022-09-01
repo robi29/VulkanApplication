@@ -26,9 +26,10 @@
 constexpr bool EnableBestPracticesValidation = false;
 #endif
 
-constexpr uint64_t Kilobyte          = 1024;
-constexpr uint64_t Megabyte          = 1024 * Kilobyte;
-constexpr uint32_t MaxFramesInFlight = 2;
+constexpr uint64_t Kilobyte           = 1024;
+constexpr uint64_t Megabyte           = 1024 * Kilobyte;
+constexpr uint32_t MaxFramesInFlight  = 2;
+constexpr uint32_t VectorElementCount = 1000000;
 
 ////////////////////////////////////////////////////////////
 /// GetBindingDescription.
@@ -276,6 +277,17 @@ private:
     bool                                           m_IsFrameBufferResized;
     bool                                           m_IsPipelineStatisticsQuerySupported;
     float                                          m_MaxSamplerAnisotropy;
+    // Compute only members.
+    VkCommandPool                                  m_CommandPoolCompute;
+    VkCommandBuffer                                m_ComputeCommandBuffer;
+    VkDescriptorSetLayout                          m_ComputeDescriptorSetLayout;
+    VkDescriptorPool                               m_ComputeDescriptorPool;
+    VkDescriptorSet                                m_ComputeDescriptorSet;
+    VkPipelineLayout                               m_ComputePipelineLayout;
+    VkPipeline                                     m_ComputePipeline;
+    std::vector<VkBuffer>                          m_ComputeBuffers;
+    std::vector<std::pair<uint32_t, VkDeviceSize>> m_ComputeBuffersGpuMemoryOffsets;
+    VkDeviceMemory                                 m_ComputeMemory;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -361,6 +373,16 @@ public:
         , m_IsPipelineStatisticsQuerySupported( false )
         , m_MaxSamplerAnisotropy( 1.0f )
         , m_PhysicalDeviceExtensions{}
+        , m_CommandPoolCompute( VK_NULL_HANDLE )
+        , m_ComputeCommandBuffer( VK_NULL_HANDLE )
+        , m_ComputeDescriptorSetLayout( VK_NULL_HANDLE )
+        , m_ComputeDescriptorPool( VK_NULL_HANDLE )
+        , m_ComputeDescriptorSet( VK_NULL_HANDLE )
+        , m_ComputePipelineLayout( VK_NULL_HANDLE )
+        , m_ComputePipeline( VK_NULL_HANDLE )
+        , m_ComputeBuffers{}
+        , m_ComputeBuffersGpuMemoryOffsets{}
+        , m_ComputeMemory( VK_NULL_HANDLE )
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
 
@@ -557,6 +579,13 @@ private:
             return result;
         }
 
+        result = CreateComputePipeline();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Compute pipeline creation failed!" << std::endl;
+            return result;
+        }
+
         result = CreateCommandPools();
         if( result != StatusCode::Success )
         {
@@ -617,6 +646,13 @@ private:
         if( result != StatusCode::Success )
         {
             std::cerr << "Uniform buffers creation failed!" << std::endl;
+            return result;
+        }
+
+        result = CreateComputeBuffers();
+        if( result != StatusCode::Success )
+        {
+            std::cerr << "Compute buffers creation failed!" << std::endl;
             return result;
         }
 
@@ -684,6 +720,10 @@ private:
         {
             glfwPollEvents();
             result = DrawFrame();
+            if( result == StatusCode::Success )
+            {
+                result = MultiplyVector();
+            }
         }
 
         if( vkDeviceWaitIdle( m_Device ) != VK_SUCCESS )
@@ -1593,6 +1633,30 @@ private:
             return StatusCode::Fail;
         }
 
+        // Compute descriptor set layout.
+        std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
+
+        for( uint32_t i = 0; i < 3; i++ )
+        {
+            VkDescriptorSetLayoutBinding layoutBinding = {};
+            layoutBinding.binding                      = i;
+            layoutBinding.descriptorType               = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            layoutBinding.descriptorCount              = 1;
+            layoutBinding.stageFlags                   = VK_SHADER_STAGE_COMPUTE_BIT;
+            layoutBindings.push_back( layoutBinding );
+        }
+
+        VkDescriptorSetLayoutCreateInfo setLayoutCreateInfo = {};
+        setLayoutCreateInfo.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        setLayoutCreateInfo.bindingCount                    = static_cast<uint32_t>( layoutBindings.size() );
+        setLayoutCreateInfo.pBindings                       = layoutBindings.data();
+
+        if( vkCreateDescriptorSetLayout( m_Device, &setLayoutCreateInfo, nullptr, &m_ComputeDescriptorSetLayout ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create compute descriptor set layout!" << std::endl;
+            return StatusCode::Fail;
+        }
+
         return StatusCode::Success;
     }
 
@@ -1793,6 +1857,65 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates compute pipeline.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateComputePipeline()
+    {
+        // Read the bytecode of the compute shader.
+        const auto computeShaderCode = ReadBinaryFile( "Shaders/comp.spv" );
+
+        if( computeShaderCode.empty() )
+        {
+            std::cerr << "Empty compute shader file!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Create a shader module for the compute shader.
+        VkShaderModule computeShaderModule = CreateShaderModule( computeShaderCode );
+
+        // Create a compute pipeline layout.
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
+        pipelineLayoutInfo.sType                      = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.setLayoutCount             = 1;
+        pipelineLayoutInfo.pSetLayouts                = &m_ComputeDescriptorSetLayout;
+
+        if( vkCreatePipelineLayout( m_Device, &pipelineLayoutInfo, nullptr, &m_ComputePipelineLayout ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create pipeline layout!" << std::endl;
+
+            // Destroy the compute shader module.
+            vkDestroyShaderModule( m_Device, computeShaderModule, nullptr );
+
+            return StatusCode::Fail;
+        }
+
+        // Populate compute pipeline information.
+        VkComputePipelineCreateInfo pipelineCreateInfo = {};
+        pipelineCreateInfo.sType                       = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineCreateInfo.stage.sType                 = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        pipelineCreateInfo.stage.stage                 = VK_SHADER_STAGE_COMPUTE_BIT;
+        pipelineCreateInfo.stage.module                = computeShaderModule;
+        pipelineCreateInfo.stage.pName                 = "main";
+        pipelineCreateInfo.layout                      = m_ComputePipelineLayout;
+
+        // Create compute pipeline.
+        if( vkCreateComputePipelines( m_Device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, nullptr, &m_ComputePipeline ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create compute pipeline!" << std::endl;
+
+            // Destroy the compute shader module.
+            vkDestroyShaderModule( m_Device, computeShaderModule, nullptr );
+
+            return StatusCode::Fail;
+        }
+
+        // Destroy the compute shader module.
+        vkDestroyShaderModule( m_Device, computeShaderModule, nullptr );
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Creates shader module.
     ////////////////////////////////////////////////////////////
     VkShaderModule CreateShaderModule( const std::vector<char>& code )
@@ -1868,6 +1991,16 @@ private:
         if( vkCreateCommandPool( m_Device, &poolInfo, nullptr, &m_CommandPoolCopy ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create copy command pool!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Compute command pool.
+        poolInfo.queueFamilyIndex = m_QueueFamilyIndices.m_ComputeFamily;
+        poolInfo.flags            = 0; // Optional.
+
+        if( vkCreateCommandPool( m_Device, &poolInfo, nullptr, &m_CommandPoolCompute ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create compute command pool!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -2730,6 +2863,35 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Creates compute buffers.
+    ////////////////////////////////////////////////////////////
+    StatusCode CreateComputeBuffers()
+    {
+        m_ComputeBuffers.resize( 3 );
+        m_ComputeBuffersGpuMemoryOffsets.resize( 3 );
+
+        for( uint32_t i = 0; i < m_ComputeBuffers.size(); ++i )
+        {
+            const StatusCode result = CreateBuffer(
+                VectorElementCount * sizeof( float ),
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                1,
+                &m_QueueFamilyIndices.m_ComputeFamily,
+                m_ComputeBuffers[i],
+                m_ComputeBuffersGpuMemoryOffsets[i] );
+
+            if( result != StatusCode::Success )
+            {
+                std::cerr << "Cannot create buffer for compute buffer!" << std::endl;
+                return StatusCode::Fail;
+            }
+        }
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Creates descriptor pool.
     ////////////////////////////////////////////////////////////
     StatusCode CreateDescriptorPool()
@@ -2754,6 +2916,21 @@ private:
         if( vkCreateDescriptorPool( m_Device, &poolInfo, nullptr, &m_DescriptorPool ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create descriptor pool!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // For compute.
+        VkDescriptorPoolSize computePoolSize = {};
+        computePoolSize.type                 = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        computePoolSize.descriptorCount      = 3;
+
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes    = &computePoolSize;
+        poolInfo.maxSets       = 1;
+
+        if( vkCreateDescriptorPool( m_Device, &poolInfo, nullptr, &m_ComputeDescriptorPool ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create compute descriptor pool!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -2827,6 +3004,42 @@ private:
                 nullptr );
         }
 
+        // For compute.
+        allocationInfo.descriptorPool     = m_ComputeDescriptorPool;
+        allocationInfo.descriptorSetCount = 1;
+        allocationInfo.pSetLayouts        = &m_ComputeDescriptorSetLayout;
+
+        if( vkAllocateDescriptorSets( m_Device, &allocationInfo, &m_ComputeDescriptorSet ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot allocate compute descriptor set!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        std::vector<VkWriteDescriptorSet>   descriptorSetWrites( m_ComputeBuffers.size() );
+        std::vector<VkDescriptorBufferInfo> bufferInfos( m_ComputeBuffers.size() );
+
+        for( uint32_t i = 0; i < m_ComputeBuffers.size(); ++i )
+        {
+            VkWriteDescriptorSet writeDescriptorSet = {};
+            writeDescriptorSet.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writeDescriptorSet.dstSet               = m_ComputeDescriptorSet;
+            writeDescriptorSet.dstBinding           = i;
+            writeDescriptorSet.dstArrayElement      = 0;
+            writeDescriptorSet.descriptorCount      = 1;
+            writeDescriptorSet.descriptorType       = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+
+            VkDescriptorBufferInfo bufferInfo = {};
+            bufferInfo.buffer                 = m_ComputeBuffers[i];
+            bufferInfo.offset                 = 0;
+            bufferInfo.range                  = VK_WHOLE_SIZE;
+            bufferInfos[i]                    = bufferInfo;
+
+            writeDescriptorSet.pBufferInfo = &bufferInfos[i];
+            descriptorSetWrites[i]         = writeDescriptorSet;
+        }
+
+        vkUpdateDescriptorSets( m_Device, static_cast<uint32_t>( descriptorSetWrites.size() ), descriptorSetWrites.data(), 0, nullptr );
+
         return StatusCode::Success;
     }
 
@@ -2873,6 +3086,16 @@ private:
         if( vkAllocateCommandBuffers( m_Device, &allocInfo, m_GraphicsCommandBuffers.data() ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create graphics command buffer!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Create compute command buffers.
+        allocInfo.commandPool        = m_CommandPoolCompute;
+        allocInfo.commandBufferCount = 1;
+
+        if( vkAllocateCommandBuffers( m_Device, &allocInfo, &m_ComputeCommandBuffer ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot create compute command buffer!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -3007,6 +3230,21 @@ private:
                 return StatusCode::Fail;
             }
         }
+
+        // For compute.
+        VkCommandBufferBeginInfo beginInfo = {};
+        beginInfo.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags                    = 0;       // Optional.
+        beginInfo.pInheritanceInfo         = nullptr; // Optional.
+
+        vkBeginCommandBuffer( m_ComputeCommandBuffer, &beginInfo );
+
+        vkCmdBindPipeline( m_ComputeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipeline );
+
+        vkCmdBindDescriptorSets( m_ComputeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, 0, 1, &m_ComputeDescriptorSet, 0, nullptr );
+        vkCmdDispatch( m_ComputeCommandBuffer, VectorElementCount, 1, 1 );
+
+        vkEndCommandBuffer( m_ComputeCommandBuffer );
 
         return StatusCode::Success;
     }
@@ -3305,6 +3543,27 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
+    /// Multiplies vector using compute queue.
+    ////////////////////////////////////////////////////////////
+    StatusCode MultiplyVector()
+    {
+        VkSubmitInfo submitInfo       = {};
+        submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers    = &m_ComputeCommandBuffer;
+
+        if( vkQueueSubmit( m_ComputeQueue, 1, &submitInfo, VK_NULL_HANDLE ) != VK_SUCCESS )
+        {
+            std::cerr << "Failed to submit dispatch command buffer!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        vkQueueWaitIdle( m_ComputeQueue );
+
+        return StatusCode::Success;
+    }
+
+    ////////////////////////////////////////////////////////////
     /// Populates debug messenger create information.
     ////////////////////////////////////////////////////////////
     void PopulateDebugMessengerCreateInfo( VkDebugUtilsMessengerCreateInfoEXT& createInfo )
@@ -3366,6 +3625,9 @@ private:
         // Destroy descriptor pool.
         vkDestroyDescriptorPool( m_Device, m_DescriptorPool, nullptr );
 
+        // Free compute command buffer.
+        vkFreeCommandBuffers( m_Device, m_CommandPoolCompute, 1, &m_ComputeCommandBuffer );
+
         // Free graphics command buffers.
         vkFreeCommandBuffers( m_Device, m_CommandPoolGraphics, static_cast<uint32_t>( m_GraphicsCommandBuffers.size() ), m_GraphicsCommandBuffers.data() );
 
@@ -3401,6 +3663,15 @@ private:
             vkDestroyQueryPool( m_Device, queryPool, nullptr );
         }
 
+        // Destroy compute pipeline.
+        vkDestroyPipeline( m_Device, m_ComputePipeline, nullptr );
+
+        // Destroy compute pipeline layout.
+        vkDestroyPipelineLayout( m_Device, m_ComputePipelineLayout, nullptr );
+
+        // Destroy compute descriptor pool.
+        vkDestroyDescriptorPool( m_Device, m_ComputeDescriptorPool, nullptr );
+
         // Destroy texture sampler.
         vkDestroySampler( m_Device, m_TextureSampler, nullptr );
 
@@ -3412,6 +3683,15 @@ private:
 
         // Destroy description set layout.
         vkDestroyDescriptorSetLayout( m_Device, m_DescriptorSetLayout, nullptr );
+
+        // Destroy compute description set layout.
+        vkDestroyDescriptorSetLayout( m_Device, m_ComputeDescriptorSetLayout, nullptr );
+
+        // Destroy compute buffers.
+        for( auto& computeBuffer : m_ComputeBuffers )
+        {
+            vkDestroyBuffer( m_Device, computeBuffer, nullptr );
+        }
 
         // Destroy index buffer.
         vkDestroyBuffer( m_Device, m_IndexBuffer, nullptr );
@@ -3445,6 +3725,8 @@ private:
         {
             vkDestroySemaphore( m_Device, imageAvailableSemaphore, nullptr );
         }
+
+        vkDestroyCommandPool( m_Device, m_CommandPoolCompute, nullptr );
 
         vkDestroyCommandPool( m_Device, m_CommandPoolCopy, nullptr );
 
