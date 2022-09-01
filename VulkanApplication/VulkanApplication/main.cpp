@@ -265,7 +265,7 @@ private:
     std::vector<VkDeviceSize>                      m_BufferGpuMemoryCpuVisibleUsage;
     std::vector<VkBuffer>                          m_UniformBuffers;
     std::vector<std::pair<uint32_t, VkDeviceSize>> m_UniformBuffersGpuMemoryOffsets;
-    std::vector<VkCommandBuffer>                   m_CommandBuffers;
+    std::vector<VkCommandBuffer>                   m_GraphicsCommandBuffers;
     std::vector<VkSemaphore>                       m_ImageAvailableSemaphores;
     std::vector<VkSemaphore>                       m_RenderFinishedSemaphores;
     std::vector<VkFence>                           m_InFlightFences;
@@ -349,7 +349,7 @@ public:
         , m_BufferGpuMemoryCpuVisibleUsage{}
         , m_UniformBuffers{}
         , m_UniformBuffersGpuMemoryOffsets{}
-        , m_CommandBuffers{}
+        , m_GraphicsCommandBuffers{}
         , m_ImageAvailableSemaphores{}
         , m_RenderFinishedSemaphores{}
         , m_InFlightFences{}
@@ -1561,6 +1561,7 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CreateDescriptorSetLayout()
     {
+        // Graphics descriptor set layouts.
         VkDescriptorSetLayoutBinding uboLayoutBinding     = {};
         VkDescriptorSetLayoutBinding samplerLayoutBinding = {};
 
@@ -1588,7 +1589,7 @@ private:
 
         if( vkCreateDescriptorSetLayout( m_Device, &layoutInfo, nullptr, &m_DescriptorSetLayout ) != VK_SUCCESS )
         {
-            std::cerr << "Cannot create descriptor set layout!" << std::endl;
+            std::cerr << "Cannot create graphics descriptor set layout!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -1772,6 +1773,7 @@ private:
         pipelineInfo.basePipelineHandle           = VK_NULL_HANDLE; // Optional.
         pipelineInfo.basePipelineIndex            = -1;             // Optional.
 
+        // Create graphics pipeline.
         if( vkCreateGraphicsPipelines( m_Device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_GraphicsPipeline ) != VK_SUCCESS )
         {
             std::cerr << "Cannot create graphics pipeline!" << std::endl;
@@ -1855,7 +1857,7 @@ private:
         // Graphics command pool.
         if( vkCreateCommandPool( m_Device, &poolInfo, nullptr, &m_CommandPoolGraphics ) != VK_SUCCESS )
         {
-            std::cerr << "Cannot create command pool!" << std::endl;
+            std::cerr << "Cannot create graphics command pool!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -1865,7 +1867,7 @@ private:
 
         if( vkCreateCommandPool( m_Device, &poolInfo, nullptr, &m_CommandPoolCopy ) != VK_SUCCESS )
         {
-            std::cerr << "Cannot create command pool!" << std::endl;
+            std::cerr << "Cannot create copy command pool!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -1879,15 +1881,19 @@ private:
         const VkDeviceSize                 size,
         const VkBufferUsageFlags           usage,
         const VkMemoryPropertyFlags        properties,
+        const uint32_t                     queueFamilyIndexCount,
+        const uint32_t*                    queueFamilyIndices,
         VkBuffer&                          buffer,
         std::pair<uint32_t, VkDeviceSize>& bufferGpuMemoryOffsets )
     {
         VkBufferCreateInfo bufferInfo = {};
 
-        bufferInfo.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size        = size;
-        bufferInfo.usage       = usage;
-        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        bufferInfo.sType                 = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size                  = size;
+        bufferInfo.usage                 = usage;
+        bufferInfo.sharingMode           = VK_SHARING_MODE_EXCLUSIVE;
+        bufferInfo.queueFamilyIndexCount = queueFamilyIndexCount;
+        bufferInfo.pQueueFamilyIndices   = queueFamilyIndices;
 
         if( vkCreateBuffer( m_Device, &bufferInfo, nullptr, &buffer ) != VK_SUCCESS )
         {
@@ -2439,7 +2445,14 @@ private:
         VkBuffer                          stagingBuffer        = VK_NULL_HANDLE;
         std::pair<uint32_t, VkDeviceSize> stagingBufferOffsets = {};
 
-        result = CreateBuffer( imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferOffsets );
+        result = CreateBuffer(
+            imageSize,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            0,
+            nullptr,
+            stagingBuffer,
+            stagingBufferOffsets );
 
         if( result != StatusCode::Success )
         {
@@ -2589,6 +2602,8 @@ private:
             bufferSize,
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            0,
+            nullptr,
             stagingBuffer,
             stagingBufferOffsets );
 
@@ -2611,6 +2626,8 @@ private:
             bufferSize,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            0,
+            nullptr,
             m_VertexBuffer,
             m_VertexBufferGpuMemoryOffset );
 
@@ -2642,6 +2659,8 @@ private:
             bufferSize,
             VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            0,
+            nullptr,
             stagingBuffer,
             stagingBufferOffsets );
 
@@ -2664,6 +2683,8 @@ private:
             bufferSize,
             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            0,
+            nullptr,
             m_IndexBuffer,
             m_IndexBufferGpuMemoryOffset );
 
@@ -2680,19 +2701,21 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CreateUniformBuffers()
     {
-        const uint32_t     swaChainImageCount = static_cast<uint32_t>( m_SwapChainImages.size() );
-        const VkDeviceSize bufferSize         = sizeof( UniformBufferObject );
+        const uint32_t     swapChainImageCount = static_cast<uint32_t>( m_SwapChainImages.size() );
+        const VkDeviceSize bufferSize          = sizeof( UniformBufferObject );
 
-        m_UniformBuffers.resize( swaChainImageCount );
-        m_UniformBuffersGpuMemoryOffsets.resize( swaChainImageCount );
+        m_UniformBuffers.resize( swapChainImageCount );
+        m_UniformBuffersGpuMemoryOffsets.resize( swapChainImageCount );
 
-        for( uint32_t i = 0; i < swaChainImageCount; ++i )
+        for( uint32_t i = 0; i < swapChainImageCount; ++i )
         {
             // TODO: try to use already freed uniform buffers.
             const StatusCode result = CreateBuffer(
                 bufferSize,
                 VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                0,
+                nullptr,
                 m_UniformBuffers[i],
                 m_UniformBuffersGpuMemoryOffsets[i] );
 
@@ -2742,6 +2765,7 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CreateDescriptorSets()
     {
+        // For graphics.
         const uint32_t                     descriptorSetCount = static_cast<uint32_t>( m_SwapChainImages.size() );
         VkDescriptorSetAllocateInfo        allocationInfo     = {};
         std::vector<VkDescriptorSetLayout> layouts( descriptorSetCount, m_DescriptorSetLayout );
@@ -2836,19 +2860,19 @@ private:
     StatusCode CreateCommandBuffers()
     {
         // Create a command buffer for all frame buffers.
-        m_CommandBuffers.resize( m_SwapChainFramebuffers.size() );
+        m_GraphicsCommandBuffers.resize( m_SwapChainFramebuffers.size() );
 
         // Populate command buffer allocate information.
         VkCommandBufferAllocateInfo allocInfo = {};
         allocInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool                 = m_CommandPoolGraphics;
         allocInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandBufferCount          = static_cast<uint32_t>( m_CommandBuffers.size() );
+        allocInfo.commandBufferCount          = static_cast<uint32_t>( m_GraphicsCommandBuffers.size() );
 
-        // Create command buffers.
-        if( vkAllocateCommandBuffers( m_Device, &allocInfo, m_CommandBuffers.data() ) != VK_SUCCESS )
+        // Create graphics command buffers.
+        if( vkAllocateCommandBuffers( m_Device, &allocInfo, m_GraphicsCommandBuffers.data() ) != VK_SUCCESS )
         {
-            std::cerr << "Cannot create command buffer!" << std::endl;
+            std::cerr << "Cannot create graphics command buffer!" << std::endl;
             return StatusCode::Fail;
         }
 
@@ -2866,7 +2890,7 @@ private:
         {
             queryPoolInfo.sType      = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
             queryPoolInfo.queryType  = VK_QUERY_TYPE_PIPELINE_STATISTICS;
-            queryPoolInfo.queryCount = static_cast<uint32_t>( m_CommandBuffers.size() );
+            queryPoolInfo.queryCount = static_cast<uint32_t>( m_GraphicsCommandBuffers.size() );
             queryPoolInfo.pipelineStatistics =
                 VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_VERTICES_BIT |
                 VK_QUERY_PIPELINE_STATISTIC_INPUT_ASSEMBLY_PRIMITIVES_BIT |
@@ -2894,7 +2918,7 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode RecordCommandBuffers()
     {
-        for( size_t i = 0; i < m_CommandBuffers.size(); ++i )
+        for( size_t i = 0; i < m_GraphicsCommandBuffers.size(); ++i )
         {
             // Populate command buffer begin information.
             VkCommandBufferBeginInfo beginInfo = {};
@@ -2903,7 +2927,7 @@ private:
             beginInfo.pInheritanceInfo         = nullptr; // Optional.
 
             // Begin recording the command buffer.
-            if( vkBeginCommandBuffer( m_CommandBuffers[i], &beginInfo ) != VK_SUCCESS )
+            if( vkBeginCommandBuffer( m_GraphicsCommandBuffers[i], &beginInfo ) != VK_SUCCESS )
             {
                 std::cerr << "Failed to begin recording command buffer!" << std::endl;
                 return StatusCode::Fail;
@@ -2914,7 +2938,7 @@ private:
             {
                 const uint32_t queryPoolIndex = static_cast<uint32_t>( QueryType::PipelineStatistics );
 
-                vkCmdResetQueryPool( m_CommandBuffers[i], m_QueryPools[queryPoolIndex], static_cast<uint32_t>( i ), 1 );
+                vkCmdResetQueryPool( m_GraphicsCommandBuffers[i], m_QueryPools[queryPoolIndex], static_cast<uint32_t>( i ), 1 );
             }
 
             // Define a clear color and depth.
@@ -2937,47 +2961,47 @@ private:
             renderPassInfo.pClearValues          = clearValues.data();
 
             // Begin the render pass.
-            vkCmdBeginRenderPass( m_CommandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
+            vkCmdBeginRenderPass( m_GraphicsCommandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE );
 
             // Bind the graphics pipeline.
-            vkCmdBindPipeline( m_CommandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline );
+            vkCmdBindPipeline( m_GraphicsCommandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline );
 
             // Bind the vertex buffers.
             const VkBuffer     vertexBuffers[] = { m_VertexBuffer };
             const VkDeviceSize offsets[]       = { 0 };
-            vkCmdBindVertexBuffers( m_CommandBuffers[i], 0, 1, vertexBuffers, offsets );
+            vkCmdBindVertexBuffers( m_GraphicsCommandBuffers[i], 0, 1, vertexBuffers, offsets );
 
             // Bind the index buffer.
-            vkCmdBindIndexBuffer( m_CommandBuffers[i], m_IndexBuffer, 0, VK_INDEX_TYPE_UINT32 );
+            vkCmdBindIndexBuffer( m_GraphicsCommandBuffers[i], m_IndexBuffer, 0, VK_INDEX_TYPE_UINT32 );
 
             // Bind the descriptor sets.
-            vkCmdBindDescriptorSets( m_CommandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipelineLayout, 0, 1, &m_DescriptorSets[i], 0, nullptr );
+            vkCmdBindDescriptorSets( m_GraphicsCommandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipelineLayout, 0, 1, &m_DescriptorSets[i], 0, nullptr );
 
             // Query begin.
             if( m_IsPipelineStatisticsQuerySupported )
             {
                 const uint32_t queryPoolIndex = static_cast<uint32_t>( QueryType::PipelineStatistics );
 
-                vkCmdBeginQuery( m_CommandBuffers[i], m_QueryPools[queryPoolIndex], static_cast<uint32_t>( i ), 0 );
+                vkCmdBeginQuery( m_GraphicsCommandBuffers[i], m_QueryPools[queryPoolIndex], static_cast<uint32_t>( i ), 0 );
             }
 
             // Draw.
             // vkCmdDraw( m_CommandBuffers[i], static_cast<uint32_t>( Vertices.size() ), 1, 0, 0 );
-            vkCmdDrawIndexed( m_CommandBuffers[i], static_cast<uint32_t>( Indices.size() ), 1, 0, 0, 0 );
+            vkCmdDrawIndexed( m_GraphicsCommandBuffers[i], static_cast<uint32_t>( Indices.size() ), 1, 0, 0, 0 );
 
             // Query end.
             if( m_IsPipelineStatisticsQuerySupported )
             {
                 const uint32_t queryPoolIndex = static_cast<uint32_t>( QueryType::PipelineStatistics );
 
-                vkCmdEndQuery( m_CommandBuffers[i], m_QueryPools[queryPoolIndex], static_cast<uint32_t>( i ) );
+                vkCmdEndQuery( m_GraphicsCommandBuffers[i], m_QueryPools[queryPoolIndex], static_cast<uint32_t>( i ) );
             }
 
             // End the render pass.
-            vkCmdEndRenderPass( m_CommandBuffers[i] );
+            vkCmdEndRenderPass( m_GraphicsCommandBuffers[i] );
 
             // End recoring the command buffer.
-            if( vkEndCommandBuffer( m_CommandBuffers[i] ) != VK_SUCCESS )
+            if( vkEndCommandBuffer( m_GraphicsCommandBuffers[i] ) != VK_SUCCESS )
             {
                 std::cerr << "Failed to record command buffer!" << std::endl;
                 return StatusCode::Fail;
@@ -3222,7 +3246,7 @@ private:
         submitInfo.pWaitSemaphores      = &m_ImageAvailableSemaphores[m_CurrentFrame];
         submitInfo.pWaitDstStageMask    = &waitStages;
         submitInfo.commandBufferCount   = 1;
-        submitInfo.pCommandBuffers      = &m_CommandBuffers[imageIndex];
+        submitInfo.pCommandBuffers      = &m_GraphicsCommandBuffers[imageIndex];
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores    = &m_RenderFinishedSemaphores[m_CurrentFrame];
 
@@ -3342,8 +3366,8 @@ private:
         // Destroy descriptor pool.
         vkDestroyDescriptorPool( m_Device, m_DescriptorPool, nullptr );
 
-        // Free command buffers.
-        vkFreeCommandBuffers( m_Device, m_CommandPoolGraphics, static_cast<uint32_t>( m_CommandBuffers.size() ), m_CommandBuffers.data() );
+        // Free graphics command buffers.
+        vkFreeCommandBuffers( m_Device, m_CommandPoolGraphics, static_cast<uint32_t>( m_GraphicsCommandBuffers.size() ), m_GraphicsCommandBuffers.data() );
 
         // Destroy graphics pipeline.
         vkDestroyPipeline( m_Device, m_GraphicsPipeline, nullptr );
