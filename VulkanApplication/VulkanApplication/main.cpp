@@ -8,6 +8,7 @@
 #include <vector>
 #include <array>
 #include <chrono>
+#include <random>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -288,6 +289,9 @@ private:
     std::vector<VkBuffer>                          m_ComputeBuffers;
     std::vector<std::pair<uint32_t, VkDeviceSize>> m_ComputeBuffersGpuMemoryOffsets;
     VkDeviceMemory                                 m_ComputeMemory;
+    float*                                         m_NumbersA;
+    float*                                         m_NumbersB;
+    float*                                         m_Results;
 
     ////////////////////////////////////////////////////////////
     /// Private Vulkan extensions members.
@@ -1406,7 +1410,7 @@ private:
     ////////////////////////////////////////////////////////////
     SwapChainSupportDetails QuerySwapChainSupport( VkPhysicalDevice physicalDevice )
     {
-        SwapChainSupportDetails details;
+        SwapChainSupportDetails details = {};
 
         // Get swap chain capabilities.
         vkGetPhysicalDeviceSurfaceCapabilitiesKHR( physicalDevice, m_Surface, &details.m_Capabilities );
@@ -2867,6 +2871,21 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CreateComputeBuffers()
     {
+        m_NumbersA = new float[VectorElementCount];
+        m_NumbersB = new float[VectorElementCount];
+        m_Results  = new float[VectorElementCount];
+
+        std::random_device                     rand_dev;
+        std::mt19937                           generator( rand_dev() );
+        std::uniform_int_distribution<int32_t> distr( 1, 1000 );
+
+        for( uint32_t i = 0; i < VectorElementCount; ++i )
+        {
+            m_NumbersA[i] = static_cast<float>( distr( generator ) ) / distr( generator );
+            m_NumbersB[i] = static_cast<float>( distr( generator ) ) / distr( generator );
+            m_Results[i]  = m_NumbersA[i] * m_NumbersB[i];
+        }
+
         m_ComputeBuffers.resize( 3 );
         m_ComputeBuffersGpuMemoryOffsets.resize( 3 );
 
@@ -2886,6 +2905,29 @@ private:
                 std::cerr << "Cannot create buffer for compute buffer!" << std::endl;
                 return StatusCode::Fail;
             }
+
+            // Copy random float numbers to the buffer.
+            void* data                  = nullptr;
+            auto  bufferGpuMemory       = m_BufferGpuMemoryCpuVisible[std::get<0>( m_ComputeBuffersGpuMemoryOffsets[i] )];
+            auto  bufferGpuMemoryOffset = std::get<1>( m_ComputeBuffersGpuMemoryOffsets[i] );
+
+            vkMapMemory( m_Device, bufferGpuMemory, bufferGpuMemoryOffset, VectorElementCount * sizeof( float ), 0, &data );
+            switch( i )
+            {
+                case 0:
+                    memcpy( data, m_NumbersA, VectorElementCount * sizeof( float ) );
+                    break;
+
+                case 1:
+                    memcpy( data, m_NumbersB, VectorElementCount * sizeof( float ) );
+                    break;
+
+                default:
+                    // Do nothing.
+                    break;
+            }
+
+            vkUnmapMemory( m_Device, bufferGpuMemory );
         }
 
         return StatusCode::Success;
@@ -3559,6 +3601,24 @@ private:
         }
 
         vkQueueWaitIdle( m_ComputeQueue );
+
+        void* data                  = nullptr;
+        auto  bufferGpuMemory       = m_BufferGpuMemoryCpuVisible[std::get<0>( m_ComputeBuffersGpuMemoryOffsets[2] )];
+        auto  bufferGpuMemoryOffset = std::get<1>( m_ComputeBuffersGpuMemoryOffsets[2] );
+
+        vkMapMemory( m_Device, bufferGpuMemory, bufferGpuMemoryOffset, VectorElementCount * sizeof( float ), 0, &data );
+
+        for( uint32_t i = 0; i < VectorElementCount; ++i )
+        {
+            float* result = reinterpret_cast<float*>( data );
+
+            if( result[i] != m_Results[i] )
+            {
+                return StatusCode::Fail;
+            }
+        }
+
+        vkUnmapMemory( m_Device, bufferGpuMemory );
 
         return StatusCode::Success;
     }
