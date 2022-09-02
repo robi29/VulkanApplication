@@ -2903,9 +2903,9 @@ private:
             }
 
             // Copy random float numbers to the buffer.
-            void* data                  = nullptr;
-            auto  bufferGpuMemory       = m_BufferGpuMemoryCpuVisible[std::get<0>( m_ComputeBuffersGpuMemoryOffsets[i] )];
-            auto  bufferGpuMemoryOffset = std::get<1>( m_ComputeBuffersGpuMemoryOffsets[i] );
+            void* data                                         = nullptr;
+            auto [bufferGpuMemoryIndex, bufferGpuMemoryOffset] = m_ComputeBuffersGpuMemoryOffsets[i];
+            auto bufferGpuMemory                               = m_BufferGpuMemoryCpuVisible[bufferGpuMemoryIndex];
 
             vkMapMemory( m_Device, bufferGpuMemory, bufferGpuMemoryOffset, VectorElementCount * sizeof( float ), 0, &data );
             switch( i )
@@ -3467,10 +3467,9 @@ private:
         // ubo.proj[1][1] *= -1;
 
         // Copy data to buffer.
-        void* data                         = nullptr;
-        auto  uniformBufferGpuMemoryOffset = m_UniformBuffersGpuMemoryOffsets[currentImage];
-        auto  bufferGpuMemory              = m_BufferGpuMemoryCpuVisible[std::get<0>( uniformBufferGpuMemoryOffset )];
-        auto  bufferGpuMemoryOffset        = std::get<1>( uniformBufferGpuMemoryOffset );
+        void* data                                         = nullptr;
+        auto [bufferGpuMemoryIndex, bufferGpuMemoryOffset] = m_UniformBuffersGpuMemoryOffsets[currentImage];
+        auto bufferGpuMemory                               = m_BufferGpuMemoryCpuVisible[bufferGpuMemoryIndex];
 
         vkMapMemory( m_Device, bufferGpuMemory, bufferGpuMemoryOffset, sizeof( ubo ), 0, &data );
         memcpy( data, &ubo, sizeof( ubo ) );
