@@ -723,11 +723,7 @@ private:
         while( !glfwWindowShouldClose( m_Window ) && result == StatusCode::Success )
         {
             glfwPollEvents();
-            result = DrawFrame();
-            if( result == StatusCode::Success )
-            {
-                result = MultiplyVector();
-            }
+            result = DrawFrameAndMultiplyVector();
         }
 
         if( vkDeviceWaitIdle( m_Device ) != VK_SUCCESS )
@@ -3162,7 +3158,8 @@ private:
                 VK_QUERY_PIPELINE_STATISTIC_VERTEX_SHADER_INVOCATIONS_BIT |
                 VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT |
                 VK_QUERY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES_BIT |
-                VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT;
+                VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT |
+                VK_QUERY_PIPELINE_STATISTIC_COMPUTE_SHADER_INVOCATIONS_BIT;
 
             VkQueryPool queryPool = {};
 
@@ -3481,9 +3478,9 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
-    /// Draws a frame.
+    /// Draws a frame and multiplies vector.
     ////////////////////////////////////////////////////////////
-    StatusCode DrawFrame()
+    StatusCode DrawFrameAndMultiplyVector()
     {
         VkResult result = VK_SUCCESS;
 
@@ -3518,8 +3515,20 @@ private:
         // Mark the image as now being in use by this frame
         m_ImagesInFlight[imageIndex] = m_InFlightFences[m_CurrentFrame];
 
-        // Submit the command buffer.
-        VkSubmitInfo         submitInfo = {};
+        // Submit the compute command buffer.
+        VkSubmitInfo submitInfo       = {};
+        submitInfo                    = {};
+        submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers    = &m_ComputeCommandBuffer;
+
+        if( vkQueueSubmit( m_ComputeQueue, 1, &submitInfo, VK_NULL_HANDLE ) != VK_SUCCESS )
+        {
+            std::cerr << "Failed to submit dispatch command buffer!" << std::endl;
+            return StatusCode::Fail;
+        }
+
+        // Submit the graphics command buffer.
         VkPipelineStageFlags waitStages = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
         submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.waitSemaphoreCount   = 1;
@@ -3554,17 +3563,25 @@ private:
         // Get query data.
         if( m_IsPipelineStatisticsQuerySupported )
         {
-            std::vector<uint64_t>    queryData( 6 );
+            std::vector<uint64_t>    queryData( 7 );
             const size_t             queryDataSize  = queryData.size() * sizeof( queryData[0] );
             const VkQueryResultFlags queryDataFlags = VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT;
             const uint32_t           queryPoolIndex = static_cast<uint32_t>( QueryType::PipelineStatistics );
 
             VkResult queryResult = vkGetQueryPoolResults( m_Device, m_QueryPools[queryPoolIndex], imageIndex, 1, queryDataSize, queryData.data(), 0, queryDataFlags );
-            if( queryResult != VK_SUCCESS )
+            if( queryResult != VK_SUCCESS && queryData.back() != 0 )
             {
                 std::cerr << "Failed to get query data!" << std::endl;
                 return StatusCode::Fail;
             }
+        }
+
+        vkQueueWaitIdle( m_ComputeQueue );
+
+        if( VerifyComputeWorkload() != StatusCode::Success )
+        {
+            std::cerr << "Failed to verify compute workload!" << std::endl;
+            return StatusCode::Fail;
         }
 
         // Check swap chain status and recreate it if needed.
@@ -3585,23 +3602,10 @@ private:
     }
 
     ////////////////////////////////////////////////////////////
-    /// Multiplies vector using compute queue.
+    /// Verifies compute workload.
     ////////////////////////////////////////////////////////////
-    StatusCode MultiplyVector()
+    StatusCode VerifyComputeWorkload()
     {
-        VkSubmitInfo submitInfo       = {};
-        submitInfo.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers    = &m_ComputeCommandBuffer;
-
-        if( vkQueueSubmit( m_ComputeQueue, 1, &submitInfo, VK_NULL_HANDLE ) != VK_SUCCESS )
-        {
-            std::cerr << "Failed to submit dispatch command buffer!" << std::endl;
-            return StatusCode::Fail;
-        }
-
-        vkQueueWaitIdle( m_ComputeQueue );
-
         void* data                  = nullptr;
         auto  bufferGpuMemory       = m_BufferGpuMemoryCpuVisible[std::get<0>( m_ComputeBuffersGpuMemoryOffsets[2] )];
         auto  bufferGpuMemoryOffset = std::get<1>( m_ComputeBuffersGpuMemoryOffsets[2] );
