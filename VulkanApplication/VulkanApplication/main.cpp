@@ -27,10 +27,9 @@
 constexpr bool EnableBestPracticesValidation = false;
 #endif
 
-constexpr uint64_t Kilobyte           = 1024;
-constexpr uint64_t Megabyte           = 1024 * Kilobyte;
-constexpr uint32_t MaxFramesInFlight  = 2;
-constexpr uint32_t VectorElementCount = 1000000;
+constexpr uint64_t Kilobyte          = 1024;
+constexpr uint64_t Megabyte          = 1024 * Kilobyte;
+constexpr uint32_t MaxFramesInFlight = 2;
 
 ////////////////////////////////////////////////////////////
 /// GetBindingDescription.
@@ -289,6 +288,7 @@ private:
     std::vector<VkBuffer>                          m_ComputeBuffers;
     std::vector<std::pair<uint32_t, VkDeviceSize>> m_ComputeBuffersGpuMemoryOffsets;
     VkDeviceMemory                                 m_ComputeMemory;
+    uint32_t                                       m_VectorElementCount;
     float*                                         m_NumbersA;
     float*                                         m_NumbersB;
     float*                                         m_Results;
@@ -387,6 +387,10 @@ public:
         , m_ComputeBuffers{}
         , m_ComputeBuffersGpuMemoryOffsets{}
         , m_ComputeMemory( VK_NULL_HANDLE )
+        , m_VectorElementCount( 0 )
+        , m_NumbersA( nullptr )
+        , m_NumbersB( nullptr )
+        , m_Results( nullptr )
     {
         m_PhysicalDeviceExtensions.emplace_back( VK_KHR_SWAPCHAIN_EXTENSION_NAME );
 
@@ -981,6 +985,9 @@ private:
 
         // Get pipeline statistics query.
         m_IsPipelineStatisticsQuerySupported = m_PhysicalDeviceFeatures.pipelineStatisticsQuery;
+
+        // Get max compute work group x.
+        m_VectorElementCount = physicalDeviceProperties.limits.maxComputeWorkGroupCount[0];
 
         return score;
     }
@@ -2867,15 +2874,15 @@ private:
     ////////////////////////////////////////////////////////////
     StatusCode CreateComputeBuffers()
     {
-        m_NumbersA = new float[VectorElementCount];
-        m_NumbersB = new float[VectorElementCount];
-        m_Results  = new float[VectorElementCount];
+        m_NumbersA = new float[m_VectorElementCount];
+        m_NumbersB = new float[m_VectorElementCount];
+        m_Results  = new float[m_VectorElementCount];
 
         std::random_device                     rand_dev;
         std::mt19937                           generator( rand_dev() );
         std::uniform_int_distribution<int32_t> distr( 1, 1000 );
 
-        for( uint32_t i = 0; i < VectorElementCount; ++i )
+        for( uint32_t i = 0; i < m_VectorElementCount; ++i )
         {
             m_NumbersA[i] = static_cast<float>( distr( generator ) ) / distr( generator );
             m_NumbersB[i] = static_cast<float>( distr( generator ) ) / distr( generator );
@@ -2888,7 +2895,7 @@ private:
         for( uint32_t i = 0; i < m_ComputeBuffers.size(); ++i )
         {
             const StatusCode result = CreateBuffer(
-                VectorElementCount * sizeof( float ),
+                m_VectorElementCount * sizeof( float ),
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                 1,
@@ -2907,15 +2914,15 @@ private:
             auto [bufferGpuMemoryIndex, bufferGpuMemoryOffset] = m_ComputeBuffersGpuMemoryOffsets[i];
             auto bufferGpuMemory                               = m_BufferGpuMemoryCpuVisible[bufferGpuMemoryIndex];
 
-            vkMapMemory( m_Device, bufferGpuMemory, bufferGpuMemoryOffset, VectorElementCount * sizeof( float ), 0, &data );
+            vkMapMemory( m_Device, bufferGpuMemory, bufferGpuMemoryOffset, m_VectorElementCount * sizeof( float ), 0, &data );
             switch( i )
             {
                 case 0:
-                    memcpy( data, m_NumbersA, VectorElementCount * sizeof( float ) );
+                    memcpy( data, m_NumbersA, m_VectorElementCount * sizeof( float ) );
                     break;
 
                 case 1:
-                    memcpy( data, m_NumbersB, VectorElementCount * sizeof( float ) );
+                    memcpy( data, m_NumbersB, m_VectorElementCount * sizeof( float ) );
                     break;
 
                 default:
@@ -3281,7 +3288,7 @@ private:
         vkCmdBindPipeline( m_ComputeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipeline );
 
         vkCmdBindDescriptorSets( m_ComputeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_ComputePipelineLayout, 0, 1, &m_ComputeDescriptorSet, 0, nullptr );
-        vkCmdDispatch( m_ComputeCommandBuffer, VectorElementCount, 1, 1 );
+        vkCmdDispatch( m_ComputeCommandBuffer, m_VectorElementCount, 1, 1 );
 
         vkEndCommandBuffer( m_ComputeCommandBuffer );
 
@@ -3609,9 +3616,9 @@ private:
         auto  bufferGpuMemory       = m_BufferGpuMemoryCpuVisible[std::get<0>( m_ComputeBuffersGpuMemoryOffsets[2] )];
         auto  bufferGpuMemoryOffset = std::get<1>( m_ComputeBuffersGpuMemoryOffsets[2] );
 
-        vkMapMemory( m_Device, bufferGpuMemory, bufferGpuMemoryOffset, VectorElementCount * sizeof( float ), 0, &data );
+        vkMapMemory( m_Device, bufferGpuMemory, bufferGpuMemoryOffset, m_VectorElementCount * sizeof( float ), 0, &data );
 
-        for( uint32_t i = 0; i < VectorElementCount; ++i )
+        for( uint32_t i = 0; i < m_VectorElementCount; ++i )
         {
             float* result = reinterpret_cast<float*>( data );
 
