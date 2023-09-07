@@ -844,7 +844,7 @@ private:
         VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = {};
         PopulateDebugMessengerCreateInfo( debugCreateInfo );
 
-        if( EnableBestPracticesValidation )
+        if constexpr( EnableBestPracticesValidation )
         {
             const VkValidationFeatureEnableEXT enables  = VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT;
             VkValidationFeaturesEXT            features = {};
@@ -2957,6 +2957,7 @@ private:
         poolInfo.poolSizeCount = static_cast<uint32_t>( poolSizes.size() );
         poolInfo.pPoolSizes    = poolSizes.data();
         poolInfo.maxSets       = descriptorCount;
+        poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
         if( vkCreateDescriptorPool( m_Device, &poolInfo, nullptr, &m_DescriptorPool ) != VK_SUCCESS )
         {
@@ -3690,6 +3691,11 @@ private:
         for( auto& uniformBuffer : m_UniformBuffers )
         {
             vkDestroyBuffer( m_Device, uniformBuffer, nullptr );
+        }
+
+        if( vkFreeDescriptorSets( m_Device, m_DescriptorPool, static_cast<uint32_t>( m_DescriptorSets.size() ), m_DescriptorSets.data() ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot free descriptor sets!" << std::endl;
         }
 
         // Destroy descriptor pool.
