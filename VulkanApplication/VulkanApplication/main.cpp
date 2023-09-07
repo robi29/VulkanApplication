@@ -3693,13 +3693,23 @@ private:
             vkDestroyBuffer( m_Device, uniformBuffer, nullptr );
         }
 
+        // Free graphics descriptor sets.
         if( vkFreeDescriptorSets( m_Device, m_DescriptorPool, static_cast<uint32_t>( m_DescriptorSets.size() ), m_DescriptorSets.data() ) != VK_SUCCESS )
         {
-            std::cerr << "Cannot free descriptor sets!" << std::endl;
+            std::cerr << "Cannot free graphics descriptor sets!" << std::endl;
         }
 
-        // Destroy descriptor pool.
+        // Free compute descriptor set.
+        if( vkFreeDescriptorSets( m_Device, m_ComputeDescriptorPool, 1, &m_ComputeDescriptorSet ) != VK_SUCCESS )
+        {
+            std::cerr << "Cannot free compute descriptor sets!" << std::endl;
+        }
+
+        // Destroy graphics descriptor pool.
         vkDestroyDescriptorPool( m_Device, m_DescriptorPool, nullptr );
+
+        // Destroy compute descriptor pool.
+        vkDestroyDescriptorPool( m_Device, m_ComputeDescriptorPool, nullptr );
 
         // Free compute command buffer.
         vkFreeCommandBuffers( m_Device, m_CommandPoolCompute, 1, &m_ComputeCommandBuffer );
@@ -3745,9 +3755,6 @@ private:
         // Destroy compute pipeline layout.
         vkDestroyPipelineLayout( m_Device, m_ComputePipelineLayout, nullptr );
 
-        // Destroy compute descriptor pool.
-        vkDestroyDescriptorPool( m_Device, m_ComputeDescriptorPool, nullptr );
-
         // Destroy texture sampler.
         vkDestroySampler( m_Device, m_TextureSampler, nullptr );
 
@@ -3757,10 +3764,10 @@ private:
         // Destroy texture image.
         vkDestroyImage( m_Device, m_TextureImage, nullptr );
 
-        // Destroy description set layout.
+        // Destroy descriptor set layout.
         vkDestroyDescriptorSetLayout( m_Device, m_DescriptorSetLayout, nullptr );
 
-        // Destroy compute description set layout.
+        // Destroy compute descriptor set layout.
         vkDestroyDescriptorSetLayout( m_Device, m_ComputeDescriptorSetLayout, nullptr );
 
         // Destroy compute buffers.
